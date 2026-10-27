@@ -1,6 +1,10 @@
 // Types shared by the API server and the web app.
 
 export type Side = 'UP' | 'DOWN';
+export type Timeframe = '1h' | '15m' | '5m';
+export const TIMEFRAMES: Timeframe[] = ['1h', '15m', '5m'];
+export const TF_MS: Record<Timeframe, number> = { '1h': 3600_000, '15m': 900_000, '5m': 300_000 };
+export const TF_LABEL: Record<Timeframe, string> = { '1h': '1H', '15m': '15M', '5m': '5M' };
 export type BotStatus = 'running' | 'paused' | 'busted';
 
 export interface Candle {
@@ -64,11 +68,13 @@ export interface Bot {
   id: number;
   name: string;
   strategy: string;
+  timeframe: Timeframe;
   params: Record<string, number | boolean | string>;
   startBalance: number;
   balance: number;
   baseLot: number;
-  entryPrice: number;
+  maxEntryPrice: number;
+  backfillPending: boolean;
   martingale: { enabled: boolean; multiplier: number; resetAfter: number };
   nextStake: number;
   mgLossRun: number;
@@ -94,6 +100,9 @@ export interface Trade {
   balanceAfter: number | null;
   backtest: boolean;
   reason: string | null;
+  shares: number | null;
+  confirmed: boolean;
+  url: string | null;
 }
 
 export interface HourBucket {
@@ -113,7 +122,7 @@ export interface DayBucket {
 }
 
 export interface FeedStatus {
-  source: 'binance' | 'sim';
+  source: 'binance';
   ok: boolean;
   error: string | null;
   lastCandleTs: number | null;
@@ -125,10 +134,11 @@ export interface FeedStatus {
 export interface BotInput {
   name: string;
   strategy: string;
+  timeframe: Timeframe;
   params: Record<string, number | boolean | string>;
   startBalance: number;
   baseLot: number;
-  entryPrice: number;
+  maxEntryPrice: number;
   martingale: { enabled: boolean; multiplier: number; resetAfter: number };
   backfillDays: number;
 }

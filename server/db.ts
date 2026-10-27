@@ -89,3 +89,18 @@ export function jwtSecret(): string {
   }
   return s;
 }
+
+// Columns added after the first release.
+for (const sql of [
+  'ALTER TABLE trades ADD COLUMN shares REAL',
+  'ALTER TABLE trades ADD COLUMN slug TEXT',
+  'ALTER TABLE trades ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE bots ADD COLUMN backfill_pending INTEGER NOT NULL DEFAULT 0',
+  "ALTER TABLE bots ADD COLUMN timeframe TEXT NOT NULL DEFAULT '1h'",
+]) {
+  try {
+    db.exec(sql);
+  } catch {
+    // already there
+  }
+}

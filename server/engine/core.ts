@@ -14,25 +14,20 @@ export interface MgState {
 
 export const round2 = (n: number) => Math.round(n * 100) / 100;
 
-/** Polymarket hourly crypto markets: UP wins when the candle closes at or above its open. */
+/** Polymarket's rule for these markets: UP wins when the Binance 1h candle closes at or above its open. */
 export const outcomeOf = (c: Candle): Side => (c.c >= c.o ? 'UP' : 'DOWN');
-
-/** Taker fee in pUSD: shares * rate * p * (1 - p). */
-export function takerFee(stake: number, price: number, rate: number) {
-  if (!rate) return 0;
-  const shares = stake / price;
-  return round2(shares * rate * price * (1 - price));
-}
 
 export function stakeFor(mg: MgState, balance: number): number {
   const want = mg.enabled ? mg.nextStake : mg.baseLot;
   return round2(Math.min(want, balance));
 }
 
-/** Win pays 1 pUSD per share bought at `price`. Fee is paid on both outcomes. */
-export function payoff(stake: number, price: number, fee: number, won: boolean) {
-  return round2(won ? stake / price - stake - fee : -stake - fee);
+/** A winning share pays 1 pUSD; the fee is paid either way. */
+export function payoff(shares: number, cost: number, fee: number, won: boolean) {
+  return round4((won ? shares : 0) - cost - fee);
 }
+
+export const round4 = (n: number) => Math.round(n * 1e4) / 1e4;
 
 /** Martingale bookkeeping after a settled trade. Returns the new state. */
 export function nextMg(mg: MgState, stake: number, won: boolean): MgState {

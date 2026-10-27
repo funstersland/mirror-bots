@@ -1,10 +1,15 @@
 # Polybots
 
-A dashboard for running many rule-based bots on Polymarket's **Bitcoin Up or Down – hourly** markets (polymarket.com).
-Every bot reads the closed BTCUSDT 1h candles at the top of each hour, picks UP or DOWN, and the trade settles
-when that hour's candle closes (UP wins when close ≥ open, the same rule Polymarket uses).
+A dashboard for running many rule-based bots on Polymarket's **Bitcoin Up or Down** markets (polymarket.com): the 1 hour, 15 minute and 5 minute windows.
 
-**Paper trading only.** Bots trade simulated money on real candle data. Nothing is sent to Polymarket and no wallet or private key is used.
+Everything uses real market data:
+
+- **Signals** come from real Binance BTCUSDT candles of the bot's timeframe.
+- **Entries** walk the live Polymarket order book of the chosen outcome when the window opens, like a market buy, and pay Polymarket's taker fee (`shares × 0.07 × p × (1 − p)`, read from the market).
+- **Results** come from Polymarket's resolution. 1h markets resolve on the Binance 1h candle, so they settle when it closes and are then checked against Polymarket. 5m and 15m markets resolve on Chainlink and settle when Polymarket resolves them.
+- **Replays** use Polymarket's recorded minute prices at each window's open and the real result (up to 30 days for 1H, 7 for 15M, 2 for 5M). Replayed trades are tagged BT.
+
+**Paper trading.** No orders are sent and no wallet or private key is used; balances are virtual. Each bot's fill ignores the other bots.
 
 ## Features
 
@@ -30,11 +35,8 @@ Settings live in environment variables, see `.env.example`. The important ones:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `DATA_SOURCE` | `binance` | `binance` = real BTCUSDT 1h candles. `sim` = synthetic candles for offline testing. |
 | `JWT_SECRET` | generated | Secret for login cookies. Set it in production. |
 | `ALLOW_SIGNUP` | `true` | Set to `false` after creating your account. |
-| `TAKER_FEE_RATE` | `0` | Polymarket taker fee rate, applied as `shares × rate × p × (1−p)`. |
-| `ENTRY_WINDOW_SEC` | `120` | How late into an hour a bot may still enter. Later and the hour is skipped. |
 
 The server needs outbound access to `api.binance.com` or `data-api.binance.vision`. Binance blocks some regions (for example the US);
 run the server somewhere those hosts answer.
@@ -43,11 +45,10 @@ run the server somewhere those hosts answer.
 
 The `Dockerfile` runs the app on port 8080 and keeps the SQLite database in `/data`. Mount a volume there (on Railway: add a volume at `/data`).
 
-## How a trade is priced
+## Martingale
 
-A bot buys shares of its side at the entry price (default 51¢). A win pays $1 per share, so a $5 stake at 51¢ wins $4.80 and loses $5.00.
 Martingale multiplies the next stake after a loss, resets to the base lot after a win or after the set number of losses in a row,
-and is capped by the bot's remaining balance. A bot whose balance falls below $1 stops with status `busted`.
+and is capped by the bot's balance. Martingale bots wait for their last trade to settle before entering. A bot whose balance falls below $1 stops as `busted`.
 
 ## Layout
 
@@ -56,7 +57,8 @@ server/            Fastify API, SQLite, engine
   strategies/      indicator helpers and the strategy rules
   engine/core.ts   pure trade maths, martingale, stats (unit tested)
   engine/runner.ts hourly loop, settlement, backtest
-  market.ts        candle feed (Binance or synthetic)
+  market.ts        Binance candle feed (1h, 15m, 5m)
+  polymarket.ts    Polymarket markets, order books, fees, price history
 web/src/           React UI
 shared/types.ts    types used by both
 ```

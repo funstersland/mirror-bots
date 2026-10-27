@@ -7,7 +7,7 @@ export const money = (n: number) => usd.format(n);
 export const moneyShort = (n: number) => (Math.abs(n) >= 10_000 ? usd0.format(n) : usd.format(n));
 export const signed = (n: number) => (n > 0 ? '+' : n < 0 ? '−' : '') + usd.format(Math.abs(n));
 export const pct = (n: number, d = 0) => `${(n * 100).toFixed(d)}%`;
-export const cents = (p: number) => `${(p * 100).toFixed(0)}¢`;
+export const cents = (p: number) => `${(p * 100).toFixed(Math.abs(p * 100 - Math.round(p * 100)) < 0.05 ? 0 : 1)}¢`;
 export const tone = (n: number) => (n > 0 ? 'up' : n < 0 ? 'down' : '');
 
 /** Shift a UTC ms timestamp so its UTC fields read as Pakistan time (UTC+5, no DST). */

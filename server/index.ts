@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { authRoutes } from './auth.ts';
 import { config } from './config.ts';
-import { startEngine } from './engine/runner.ts';
+import { addTimeframeTwins, migratePricing, startEngine } from './engine/runner.ts';
 import { loadCandles, syncCandles } from './market.ts';
 import { apiRoutes } from './routes.ts';
 
@@ -25,8 +25,10 @@ if (existsSync(webDist)) {
 }
 
 loadCandles();
-console.log(`[market] source=${config.dataSource}, loading candle history...`);
+console.log('[market] loading Binance BTCUSDT 1h candles...');
 await syncCandles();
+migratePricing();
+addTimeframeTwins();
 startEngine();
 
 await app.listen({ port: config.port, host: config.host });

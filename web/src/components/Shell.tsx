@@ -34,7 +34,7 @@ function FeedPill() {
     <div className={`feed ${bad ? 'bad' : ''}`} title={feed?.error ?? 'Market data feed'}>
       <span className="dot" />
       <span className="hide-sm">
-        {feed?.source === 'sim' ? 'SIM' : 'BTCUSDT'} <b>{feed?.lastPrice ? feed.lastPrice.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—'}</b>
+        BTCUSDT <b>{feed?.lastPrice ? feed.lastPrice.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—'}</b>
       </span>
       <span className="sep hide-sm" />
       <span className="hide-md">

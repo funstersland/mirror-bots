@@ -29,9 +29,9 @@ test('stake is capped by balance', () => {
   assert.equal(stakeFor({ ...base, nextStake: 40 }, 25.5), 25.5);
 });
 
-test('payoff at 51 cents', () => {
-  assert.equal(payoff(5, 0.51, 0, true), 4.8);
-  assert.equal(payoff(5, 0.51, 0, false), -5);
+test('payoff: shares pay 1 on a win, fee paid either way', () => {
+  assert.equal(payoff(9.8, 5, 0.17, true), 4.63);
+  assert.equal(payoff(9.8, 5, 0.17, false), -5.17);
 });
 
 test('outcome uses close >= open', () => {

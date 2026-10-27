@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import type { Bot } from '../../../shared/types.ts';
+import type { Bot, Timeframe } from '../../../shared/types.ts';
+import { TF_LABEL, TIMEFRAMES } from '../../../shared/types.ts';
 import { api } from '../api.ts';
 import { BotCard } from '../components/BotCard.tsx';
 import { BotDialog, ResetDialog } from '../components/BotDialog.tsx';
@@ -56,7 +57,7 @@ function Summary({ bots }: { bots: Bot[] }) {
         <div className="s">{trades.toLocaleString()} settled trades</div>
       </div>
       <div>
-        <div className="label">This hour</div>
+        <div className="label">Open now</div>
         <div className="v">{open.length}</div>
         <div className="s">open · {money(openStake)} staked</div>
       </div>
@@ -78,8 +79,9 @@ function EmptyFleet({ onNew }: { onNew: () => void }) {
     <div className="empty">
       <h2>No bots yet</h2>
       <p>
-        Start one bot per strategy to see which rules hold up. The starter fleet gives each of the 15 strategies $100 and a $5 lot, and replays the last 30
-        days so you have stats right away.
+        Start one bot per strategy on each market to see which rules hold up. The starter fleet gives all 15 strategies a bot on the
+        BTC 1H, 15M and 5M markets (45 bots), each with $100 and a $5 lot. It replays recent windows with Polymarket's real share
+        prices and results (30 days for 1H, 7 for 15M, 2 for 5M), so you have stats right away.
       </p>
       <div className="actions">
         <button
@@ -111,6 +113,7 @@ function EmptyFleet({ onNew }: { onNew: () => void }) {
 export function FleetPage() {
   const { bots, strategies } = useFleet();
   const [sort, setSort] = useState<SortKey>('profit');
+  const [tf, setTf] = useState<Timeframe | 'all'>('all');
   const [status, setStatus] = useState<(typeof STATUSES)[number]>('all');
   const [family, setFamily] = useState('all');
   const [q, setQ] = useState('');
@@ -123,11 +126,13 @@ export function FleetPage() {
     if (!bots) return [];
     const needle = q.trim().toLowerCase();
     return bots
+      .filter((b) => tf === 'all' || b.timeframe === tf)
       .filter((b) => status === 'all' || b.status === status)
       .filter((b) => family === 'all' || stratById.get(b.strategy)?.family === family)
       .filter((b) => !needle || b.name.toLowerCase().includes(needle) || (stratById.get(b.strategy)?.name ?? '').toLowerCase().includes(needle))
       .sort(SORTS[sort].fn);
-  }, [bots, status, family, q, sort, stratById]);
+  }, [bots, tf, status, family, q, sort, stratById]);
+  const inTf = useMemo(() => bots?.filter((b) => tf === 'all' || b.timeframe === tf) ?? [], [bots, tf]);
 
   const active = dialog && dialog.kind !== 'new' ? bots?.find((b) => b.id === dialog.id) : undefined;
 
@@ -136,7 +141,7 @@ export function FleetPage() {
       <div className="page-head">
         <div>
           <h1>Fleet</h1>
-          <p>Paper trading Polymarket's Bitcoin Up or Down hourly market. Each bot enters at the top of the hour.</p>
+          <p>Paper trading Polymarket's Bitcoin Up or Down markets (1 hour, 15 minute, 5 minute) at real order-book prices. Each bot enters as its window opens.</p>
         </div>
         <button className="btn primary" onClick={() => setDialog({ kind: 'new' })} disabled={!strategies.length}>
           <svg width="14" height="14" viewBox="0 0 14 14" stroke="currentColor" strokeWidth="1.8">
@@ -146,7 +151,22 @@ export function FleetPage() {
         </button>
       </div>
 
-      {bots && bots.length > 0 && <Summary bots={bots} />}
+      {bots && bots.length > 0 && (
+        <div className="tf-bar">
+          <div className="seg" aria-label="Market timeframe">
+            <button className={tf === 'all' ? 'on' : ''} onClick={() => setTf('all')}>
+              All <span className="muted">{bots.length}</span>
+            </button>
+            {TIMEFRAMES.map((t) => (
+              <button key={t} className={tf === t ? 'on' : ''} onClick={() => setTf(t)}>
+                BTC {TF_LABEL[t]} <span className="muted">{bots.filter((b) => b.timeframe === t).length}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {bots && inTf.length > 0 && <Summary bots={inTf} />}
 
       {bots && bots.length > 0 && (
         <div className="toolbar">

@@ -1,11 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { Bot, Candle, FeedStatus, StrategyInfo } from '../../shared/types.ts';
+import type { Bot, FeedStatus, StrategyInfo } from '../../shared/types.ts';
 import { api } from './api.ts';
 
 interface Fleet {
   bots: Bot[] | null;
   strategies: StrategyInfo[];
-  feed: (FeedStatus & { candles24: Candle[] }) | null;
+  feed: FeedStatus | null;
   refresh: () => Promise<void>;
   upsert: (bot: Bot) => void;
   remove: (id: number) => void;

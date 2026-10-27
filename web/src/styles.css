@@ -390,3 +390,13 @@ table.trades .r { text-align: right; }
   .dialog { max-height: 92dvh; border-radius: 14px 14px 0 0; }
 }
 .spark-lg { display: block; width: 100%; height: 120px; }
+
+.card.clickable { cursor: pointer; }
+.chip.tf { height: 23px; background: transparent; border: 1px solid var(--line-2); color: var(--text); }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); padding: 0 20px; }
+.tabs button { height: 40px; padding: 0 12px; border: 0; background: none; color: var(--text-2); font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+.drawer .cal-layout { grid-template-columns: 290px minmax(0, 1fr); }
+.drawer .cal-layout .cal { max-width: none; padding: 12px; }
+@media (max-width: 760px) { .drawer .cal-layout { grid-template-columns: 1fr; } }
+.tf-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }

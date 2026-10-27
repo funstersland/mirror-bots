@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { DayBucket, HourBucket } from '../../../shared/types.ts';
-import { PKT_OFFSET_MS } from '../../../shared/types.ts';
+import type { DayBucket, HourBucket, Timeframe } from '../../../shared/types.ts';
+import { PKT_OFFSET_MS, TF_LABEL, TIMEFRAMES } from '../../../shared/types.ts';
 import { api } from '../api.ts';
 import { HourlyChart } from '../components/HourlyChart.tsx';
 import { addDays, datesBetween, prettyDate, signed, todayPkt, tone } from '../format.ts';
@@ -29,13 +29,16 @@ function describe(dates: string[]) {
     : `${sorted.length} dates selected`;
 }
 
-export function CalendarPage() {
-  const { bots } = useFleet();
+export function CalendarPage({ botId }: { botId?: number } = {}) {
+  const { bots: allBots } = useFleet();
+  const [tf, setTf] = useState<Timeframe | ''>('');
+  const bots = useMemo(() => allBots?.filter((b) => (botId ? b.id === botId : !tf || b.timeframe === tf)) ?? null, [allBots, tf, botId]);
   const today = todayPkt();
   const [cursor, setCursor] = useState(() => ({ y: Number(today.slice(0, 4)), m: Number(today.slice(5, 7)) - 1 }));
   const [selected, setSelected] = useState<Set<string>>(() => new Set([today]));
   const [anchor, setAnchor] = useState<string | null>(today);
-  const [botIds, setBotIds] = useState<number[]>([]);
+  const [pickedIds, setBotIds] = useState<number[]>([]);
+  const botIds = useMemo(() => (botId ? [botId] : pickedIds.filter((id) => bots?.some((b) => b.id === id))), [botId, pickedIds, bots]);
   const [liveOnly, setLiveOnly] = useState(false);
   const [view, setView] = useState<'split' | 'net'>('split');
   const [days, setDays] = useState<Map<string, DayBucket>>(new Map());
@@ -49,18 +52,18 @@ export function CalendarPage() {
     const from = cells.find(Boolean)!;
     const to = [...cells].reverse().find(Boolean)!;
     api
-      .days(from, to, botIds, liveOnly)
+      .days(from, to, botIds, liveOnly, tf)
       .then((rows) => setDays(new Map(rows.map((r) => [r.date, r]))))
       .catch(() => {});
-  }, [cells, botIds, liveOnly, bots]);
+  }, [cells, botIds, liveOnly, bots, tf]);
 
   useEffect(() => {
     if (!dates.length) return setHours(null);
     api
-      .hourly(dates, botIds, liveOnly)
+      .hourly(dates, botIds, liveOnly, tf)
       .then((r) => setHours(r.hours))
       .catch(() => setHours(null));
-  }, [dates, botIds, liveOnly, bots]);
+  }, [dates, botIds, liveOnly, bots, tf]);
 
   function clickDay(d: string, shift: boolean) {
     if (d > today) return;
@@ -103,12 +106,26 @@ export function CalendarPage() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>Hourly PnL</h1>
-          <p>Net result per hour of the day in Pakistan time, added up across the dates you pick.</p>
-        </div>
-      </div>
+      {!botId && (
+        <>
+          <div className="page-head">
+            <div>
+              <h1>Hourly PnL</h1>
+              <p>Net result per hour of the day in Pakistan time, added up across the dates you pick.</p>
+            </div>
+          </div>
+          <div className="tf-bar">
+            <div className="seg" aria-label="Market">
+              <button className={tf === '' ? 'on' : ''} onClick={() => setTf('')}>All markets</button>
+              {TIMEFRAMES.map((t) => (
+                <button key={t} className={tf === t ? 'on' : ''} onClick={() => setTf(t)}>
+                  {TF_LABEL[t]}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="cal-layout">
         <div className="panel cal">
@@ -187,7 +204,7 @@ export function CalendarPage() {
             <div>
               <h2>{describe(dates)}</h2>
               <div className="sub">
-                {botIds.length ? `${botIds.length} bot${botIds.length > 1 ? 's' : ''}` : 'All bots'} · {liveOnly ? 'live trades only' : 'live + backtest'}
+                {botId ? 'This bot' : botIds.length ? `${botIds.length} bot${botIds.length > 1 ? 's' : ''}` : `All ${tf ? TF_LABEL[tf] + ' ' : ''}bots`} · {liveOnly ? 'live trades only' : 'live + backtest'}
               </div>
             </div>
             {totals && (
@@ -214,7 +231,7 @@ export function CalendarPage() {
             )}
           </div>
 
-          <div className="toolbar" style={{ marginBottom: 6 }}>
+          {!botId && <div className="toolbar" style={{ marginBottom: 6 }}>
             <div className="bot-filter">
               <button className={!botIds.length ? 'on' : ''} onClick={() => setBotIds([])}>
                 All bots
@@ -225,11 +242,11 @@ export function CalendarPage() {
                   className={botIds.includes(b.id) ? 'on' : ''}
                   onClick={() => setBotIds((ids) => (ids.includes(b.id) ? ids.filter((x) => x !== b.id) : [...ids, b.id]))}
                 >
-                  {b.name}
+                  {b.name} <span className="muted">{TF_LABEL[b.timeframe]}</span>
                 </button>
               ))}
             </div>
-          </div>
+          </div>}
           <div className="toolbar" style={{ marginBottom: 4 }}>
             <label className="check" style={{ fontSize: 13 }}>
               <input type="checkbox" checked={liveOnly} onChange={(e) => setLiveOnly(e.target.checked)} />

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Bot, StrategyInfo, StreakHit } from '../../../shared/types.ts';
+import { TF_LABEL } from '../../../shared/types.ts';
 import { api } from '../api.ts';
 import { cents, duration, money, pct, pktHour, signed, tone } from '../format.ts';
 import { useFleet } from '../store.tsx';
@@ -92,14 +93,21 @@ export function BotCard({ bot, strategy, onSettings, onReset, onTrades }: Props)
   const streak = s.current.kind ? `${s.current.kind}${s.current.len}` : '—';
 
   return (
-    <article className={`card ${bot.status}`}>
+    <article
+      className={`card clickable ${bot.status}`}
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest('button, a, .menu-pop')) return;
+        onTrades();
+      }}
+    >
       <div className="card-head">
         <div className="titles">
           <h3 title={bot.name}>{bot.name}</h3>
           <div className="sub">
-            {strategy && strategy.name !== bot.name ? strategy.name : (strategy?.family ?? bot.strategy)} · BTC 1H{bot.params.invert ? ' · flipped' : ''}
+            {strategy && strategy.name !== bot.name ? strategy.name : (strategy?.family ?? bot.strategy)} · BTC {TF_LABEL[bot.timeframe]}{bot.params.invert ? ' · flipped' : ''}
           </div>
         </div>
+        <span className="chip tf">{TF_LABEL[bot.timeframe]}</span>
         <span className={`status ${bot.status}`}>
           <i />
           {bot.status}
@@ -172,12 +180,19 @@ export function BotCard({ bot, strategy, onSettings, onReset, onTrades }: Props)
         </div>
       </div>
 
+      {bot.backfillPending && (
+        <div className="open-pos">
+          <span className="chip">REPLAY</span>
+          <span>Loading Polymarket history for the last {bot.backfillDays} days…</span>
+        </div>
+      )}
+
       {bot.openTrade && (
         <div className="open-pos">
           <span className="chip warn">OPEN</span>
           <b className={bot.openTrade.side === 'UP' ? 'up' : 'down'}>{bot.openTrade.side}</b>
           <span>
-            {money(bot.openTrade.stake)} @ {cents(bot.openTrade.price)}
+            {bot.openTrade.shares} sh @ {cents(bot.openTrade.price)} · {money(bot.openTrade.stake)}
           </span>
           <span className="muted">{pktHour(bot.openTrade.hourTs)} PKT</span>
         </div>

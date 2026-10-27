@@ -1,56 +1,72 @@
-import type { Candle, FeedStatus } from '../shared/types.ts';
-import { HOUR_MS } from '../shared/types.ts';
-import { config } from './config.ts';
+import type { Candle, FeedStatus, Timeframe } from '../shared/types.ts';
+import { TF_MS, TIMEFRAMES } from '../shared/types.ts';
 import { db, getMeta, setMeta } from './db.ts';
 
 /**
- * Hourly BTCUSDT candles. Polymarket's hourly "Bitcoin Up or Down" markets settle on the
- * Binance BTC/USDT 1h candle: UP wins when close >= open. Only closed candles are stored.
+ * BTCUSDT candles from Binance, one series per timeframe. Bots read them for their technical rules.
+ * Only closed candles are stored.
  */
 
 const BINANCE_HOSTS = ['https://api.binance.com', 'https://data-api.binance.vision'];
+/** Days of candles kept per timeframe: the replay window plus indicator warm-up. */
+const KEEP_DAYS: Record<Timeframe, number> = { '1h': 60, '15m': 14, '5m': 6 };
 
-let candles: Candle[] = [];
-const index = new Map<number, number>();
-let live: Candle | null = null;
+interface Series {
+  candles: Candle[];
+  index: Map<number, number>;
+  live: Candle | null;
+}
+
+const series = new Map<Timeframe, Series>(TIMEFRAMES.map((tf) => [tf, { candles: [], index: new Map(), live: null }]));
 let lastError: string | null = null;
 let lastOk = 0;
 
-export const floorHour = (t: number) => Math.floor(t / HOUR_MS) * HOUR_MS;
+export const floorTo = (t: number, tf: Timeframe) => Math.floor(t / TF_MS[tf]) * TF_MS[tf];
 
-function rebuildIndex() {
-  index.clear();
-  candles.forEach((c, i) => index.set(c.ts, i));
+db.exec(`CREATE TABLE IF NOT EXISTS candles_tf (
+  tf TEXT NOT NULL, ts INTEGER NOT NULL,
+  o REAL NOT NULL, h REAL NOT NULL, l REAL NOT NULL, c REAL NOT NULL, v REAL NOT NULL,
+  PRIMARY KEY (tf, ts)
+)`);
+
+function rebuild(s: Series) {
+  s.candles.sort((a, b) => a.ts - b.ts);
+  s.index.clear();
+  s.candles.forEach((c, i) => s.index.set(c.ts, i));
 }
 
 export function loadCandles() {
-  const source = getMeta('candle_source');
-  if (source && source !== config.dataSource) {
-    // Never mix synthetic and real candles.
+  if (getMeta('candle_source') !== 'binance-tf') {
     db.prepare('DELETE FROM candles').run();
+    db.prepare('DELETE FROM candles_tf').run();
+    setMeta('candle_source', 'binance-tf');
   }
-  setMeta('candle_source', config.dataSource);
-  candles = db.prepare('SELECT ts, o, h, l, c, v FROM candles ORDER BY ts').all() as Candle[];
-  rebuildIndex();
+  for (const tf of TIMEFRAMES) {
+    const s = series.get(tf)!;
+    s.candles = db.prepare('SELECT ts, o, h, l, c, v FROM candles_tf WHERE tf = ? ORDER BY ts').all(tf) as Candle[];
+    rebuild(s);
+  }
 }
 
-const insert = db.prepare('INSERT OR REPLACE INTO candles(ts, o, h, l, c, v) VALUES (@ts, @o, @h, @l, @c, @v)');
-const insertMany = db.transaction((rows: Candle[]) => rows.forEach((r) => insert.run(r)));
+const insert = db.prepare('INSERT OR REPLACE INTO candles_tf(tf, ts, o, h, l, c, v) VALUES (@tf, @ts, @o, @h, @l, @c, @v)');
+const insertMany = db.transaction((tf: Timeframe, rows: Candle[]) => rows.forEach((r) => insert.run({ tf, ...r })));
 
-function append(rows: Candle[]) {
-  const fresh = rows.filter((r) => !index.has(r.ts));
+function append(tf: Timeframe, rows: Candle[]) {
+  const s = series.get(tf)!;
+  const fresh = rows.filter((r) => !s.index.has(r.ts));
   if (!fresh.length) return;
-  insertMany(fresh);
-  candles.push(...fresh);
-  candles.sort((a, b) => a.ts - b.ts);
-  rebuildIndex();
+  insertMany(tf, fresh);
+  s.candles.push(...fresh);
+  const cutoff = Date.now() - KEEP_DAYS[tf] * 86400_000;
+  if (s.candles[0]?.ts < cutoff) s.candles = s.candles.filter((c) => c.ts >= cutoff);
+  rebuild(s);
 }
 
-async function fetchKlines(startTime: number): Promise<{ closed: Candle[]; live: Candle | null }> {
+async function fetchKlines(tf: Timeframe, startTime: number): Promise<{ closed: Candle[]; live: Candle | null }> {
   let lastErr: unknown;
   for (const host of BINANCE_HOSTS) {
     try {
-      const url = `${host}/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=1000&startTime=${startTime}`;
+      const url = `${host}/api/v3/klines?symbol=BTCUSDT&interval=${tf}&limit=1000&startTime=${startTime}`;
       const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
       if (!res.ok) throw new Error(`${host} HTTP ${res.status}`);
       const raw = (await res.json()) as [number, string, string, string, string, string, number][];
@@ -66,69 +82,23 @@ async function fetchKlines(startTime: number): Promise<{ closed: Candle[]; live:
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
-async function syncBinance() {
-  const earliest = floorHour(Date.now()) - config.historyDays * 24 * HOUR_MS;
-  let start = candles.length ? candles[candles.length - 1].ts + HOUR_MS : earliest;
-  for (let guard = 0; guard < 20; guard++) {
-    const { closed, live: l } = await fetchKlines(start);
-    append(closed);
-    live = l;
+async function syncTf(tf: Timeframe) {
+  const s = series.get(tf)!;
+  const step = TF_MS[tf];
+  const earliest = floorTo(Date.now(), tf) - KEEP_DAYS[tf] * 86400_000;
+  let start = s.candles.length ? s.candles[s.candles.length - 1].ts + step : earliest;
+  for (let guard = 0; guard < 30; guard++) {
+    const { closed, live } = await fetchKlines(tf, start);
+    append(tf, closed);
+    s.live = live;
     if (closed.length < 999) break;
-    start = closed[closed.length - 1].ts + HOUR_MS;
+    start = closed[closed.length - 1].ts + step;
   }
-}
-
-// ---------- synthetic feed (offline development) ----------
-
-function rng(seed: number) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function gauss(r: () => number) {
-  const u = Math.max(r(), 1e-12);
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r());
-}
-
-function simCandle(ts: number, prevClose: number): Candle {
-  const r = rng(ts / HOUR_MS);
-  const vol = 0.0055 * (0.6 + r() * 0.9);
-  // Gentle pull toward ~68k keeps the synthetic price in a realistic band.
-  const ret = gauss(r) * vol - 0.002 * Math.log(prevClose / 68_000);
-  const o = prevClose;
-  const c = o * (1 + ret);
-  const h = Math.max(o, c) * (1 + Math.abs(gauss(r)) * vol * 0.6);
-  const l = Math.min(o, c) * (1 - Math.abs(gauss(r)) * vol * 0.6);
-  const v = 900 * Math.exp(gauss(r) * 0.35) * (1 + Math.abs(ret) / vol);
-  return { ts, o, h, l, c, v };
-}
-
-function syncSim() {
-  const nowHour = floorHour(Date.now());
-  let ts = candles.length ? candles[candles.length - 1].ts + HOUR_MS : nowHour - config.historyDays * 24 * HOUR_MS;
-  let prev = candles.length ? candles[candles.length - 1].c : 68_000;
-  const rows: Candle[] = [];
-  for (; ts < nowHour; ts += HOUR_MS) {
-    const c = simCandle(ts, prev);
-    rows.push(c);
-    prev = c.c;
-  }
-  append(rows);
-  const partial = simCandle(nowHour, prev);
-  const frac = (Date.now() - nowHour) / HOUR_MS;
-  live = { ...partial, c: prev + (partial.c - prev) * frac, v: partial.v * frac };
 }
 
 export async function syncCandles() {
   try {
-    if (config.dataSource === 'sim') syncSim();
-    else await syncBinance();
+    for (const tf of TIMEFRAMES) await syncTf(tf);
     lastError = null;
     lastOk = Date.now();
   } catch (e) {
@@ -136,45 +106,39 @@ export async function syncCandles() {
   }
 }
 
-export function getCandle(ts: number): Candle | undefined {
-  const i = index.get(ts);
-  return i === undefined ? undefined : candles[i];
+export function getCandle(tf: Timeframe, ts: number): Candle | undefined {
+  const s = series.get(tf)!;
+  const i = s.index.get(ts);
+  return i === undefined ? undefined : s.candles[i];
 }
 
-/** Up to `count` closed candles that opened strictly before `hourTs`, oldest first. */
-export function candlesBefore(hourTs: number, count: number): Candle[] {
-  let i = index.get(hourTs - HOUR_MS);
+/** Up to `count` closed candles that opened before `ts`, oldest first. */
+export function candlesBefore(tf: Timeframe, ts: number, count: number): Candle[] {
+  const s = series.get(tf)!;
+  let i = s.index.get(ts - TF_MS[tf]);
   if (i === undefined) {
-    // Fall back to a search when the previous hour is missing (gap in the feed).
-    i = candles.findLastIndex((c) => c.ts < hourTs);
+    i = s.candles.findLastIndex((c) => c.ts < ts);
     if (i < 0) return [];
   }
-  return candles.slice(Math.max(0, i - count + 1), i + 1);
+  return s.candles.slice(Math.max(0, i - count + 1), i + 1);
 }
 
-export function firstCandleTs() {
-  return candles[0]?.ts ?? null;
-}
-
-export function lastClosedTs() {
-  return candles.length ? candles[candles.length - 1].ts : null;
+export function firstCandleTs(tf: Timeframe) {
+  return series.get(tf)!.candles[0]?.ts ?? null;
 }
 
 export function feedStatus(): FeedStatus {
-  const lastTs = lastClosedTs();
-  const stale = lastTs !== null && floorHour(Date.now()) - lastTs > 2 * HOUR_MS;
+  const h = series.get('1h')!;
+  const m5 = series.get('5m')!;
+  const lastTs = m5.candles.at(-1)?.ts ?? null;
+  const stale = lastTs !== null && Date.now() - lastTs > 20 * 60_000;
   return {
-    source: config.dataSource,
+    source: 'binance',
     ok: !lastError && !stale && lastOk > 0,
-    error: lastError ?? (stale ? 'Feed is behind by more than 2 hours' : null),
-    lastCandleTs: lastTs,
-    lastPrice: live?.c ?? (lastTs !== null ? candles[candles.length - 1].c : null),
-    candles: candles.length,
+    error: lastError ?? (stale ? 'Price feed is more than 20 minutes behind' : null),
+    lastCandleTs: h.candles.at(-1)?.ts ?? null,
+    lastPrice: m5.live?.c ?? h.live?.c ?? m5.candles.at(-1)?.c ?? null,
+    candles: h.candles.length,
     serverTime: Date.now(),
   };
-}
-
-export function recentCandles(n: number): Candle[] {
-  const out = candles.slice(-n);
-  return live ? [...out, live] : out;
 }

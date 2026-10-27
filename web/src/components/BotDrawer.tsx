@@ -4,6 +4,8 @@ import { api } from '../api.ts';
 import { cents, duration, hourSpan, money, pct, pktStamp, signed, tone } from '../format.ts';
 import { HitChips } from './BotCard.tsx';
 import { Sparkline } from './Sparkline.tsx';
+import { CalendarPage } from '../pages/Calendar.tsx';
+import { TF_LABEL } from '../../../shared/types.ts';
 
 function candleColor(t: Trade) {
   if (t.status === 'open') return null;
@@ -14,6 +16,7 @@ function candleColor(t: Trade) {
 export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyName: string; onClose: () => void }) {
   const [trades, setTrades] = useState<Trade[] | null>(null);
   const [limit, setLimit] = useState(200);
+  const [tab, setTab] = useState<'overview' | 'trades' | 'hourly'>('overview');
   const s = bot.stats;
 
   useEffect(() => {
@@ -48,7 +51,7 @@ export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyNa
           <div>
             <h2>{bot.name}</h2>
             <div className="mono muted" style={{ fontSize: 12, marginTop: 3 }}>
-              {strategyName} · BTC 1H · lot {money(bot.baseLot)} @ {cents(bot.entryPrice)}
+              {strategyName} · BTC {TF_LABEL[bot.timeframe]} · lot {money(bot.baseLot)} · max {cents(bot.maxEntryPrice)}
               {bot.martingale.enabled && ` · MG ×${bot.martingale.multiplier}${bot.martingale.resetAfter ? ` reset L${bot.martingale.resetAfter}` : ''}`}
             </div>
           </div>
@@ -58,7 +61,16 @@ export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyNa
             </svg>
           </button>
         </div>
+        <div className="tabs" role="tablist">
+          {(['overview', 'trades', 'hourly'] as const).map((t) => (
+            <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
+              {t === 'overview' ? 'Stats' : t === 'trades' ? 'History' : 'Hourly PnL'}
+            </button>
+          ))}
+        </div>
         <div className="drawer-body">
+          {tab === 'overview' && (
+            <>
           <div className="panel" style={{ padding: 14 }}>
             <div className="label" style={{ marginBottom: 10 }}>Balance curve</div>
             <Sparkline values={s.equity} base={bot.startBalance} className="spark-lg" />
@@ -82,6 +94,9 @@ export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyNa
               <HitChips hits={s.lossHits} kind="L" min={1} max={20} />
             </div>
           </div>
+            </>
+          )}
+          {tab === 'trades' && (
           <div>
             <div className="label" style={{ marginBottom: 10 }}>Trades · newest first</div>
             <div className="table-scroll">
@@ -91,7 +106,9 @@ export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyNa
                     <th>Hour (PKT)</th>
                     <th>Bet</th>
                     <th>Candle</th>
-                    <th className="r">Stake</th>
+                    <th className="r">Cost</th>
+                    <th className="r">Shares @ price</th>
+                    <th className="r">Fee</th>
                     <th>Result</th>
                     <th className="r">PnL</th>
                     <th className="r">Balance</th>
@@ -112,13 +129,23 @@ export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyNa
                           {money(t.stake)}
                           {t.mgStep > 0 && <span className="muted"> L{t.mgStep}</span>}
                         </td>
+                        <td className="r">
+                          {t.shares ?? '—'} @ {cents(t.price)}
+                        </td>
+                        <td className="r muted">{money(t.fee)}</td>
                         <td>
                           {t.status === 'open' ? (
                             <span className="chip warn">OPEN</span>
                           ) : (
-                            <span className={t.status === 'won' ? 'up' : 'down'}>
-                              {t.status.toUpperCase()} @ {cents(t.price)}
+                            <span className={t.status === 'won' ? 'up' : 'down'} title={t.confirmed ? 'Confirmed by Polymarket resolution' : 'From the Binance candle; waiting for Polymarket to resolve'}>
+                              {t.status.toUpperCase()}
+                              {!t.confirmed && <span className="muted"> · pending</span>}
                             </span>
+                          )}
+                          {t.url && (
+                            <a href={t.url} target="_blank" rel="noreferrer" className="muted" style={{ marginLeft: 8 }} title="Open on Polymarket">
+                              ↗
+                            </a>
                           )}
                         </td>
                         <td className={`r ${tone(t.pnl ?? 0)}`}>{t.pnl === null ? '—' : signed(t.pnl)}</td>
@@ -129,8 +156,8 @@ export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyNa
                   })}
                   {trades && !trades.length && (
                     <tr>
-                      <td colSpan={8} className="muted" style={{ textAlign: 'center', padding: 24 }}>
-                        No trades yet. The bot enters at the start of the next hour when its rule fires.
+                      <td colSpan={10} className="muted" style={{ textAlign: 'center', padding: 24 }}>
+                        {bot.backfillPending ? 'Downloading Polymarket history for the replay. This takes a few minutes the first time.' : 'No trades yet. The bot enters at the start of the next hour when its rule fires.'}
                       </td>
                     </tr>
                   )}
@@ -143,6 +170,8 @@ export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyNa
               </button>
             )}
           </div>
+          )}
+          {tab === 'hourly' && <CalendarPage botId={bot.id} />}
         </div>
       </aside>
     </div>
