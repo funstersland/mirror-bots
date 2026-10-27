@@ -80,8 +80,8 @@ function EmptyFleet({ onNew }: { onNew: () => void }) {
       <h2>No bots yet</h2>
       <p>
         Start one bot per strategy on each market to see which rules hold up. The starter fleet gives all 15 strategies a bot on the
-        BTC 1H, 15M and 5M markets (45 bots), each with $100 and a $5 lot. It replays recent windows with Polymarket's real share
-        prices and results (30 days for 1H, 7 for 15M, 2 for 5M), so you have stats right away.
+        BTC 1H, 15M and 5M markets (45 bots), each with $100 and a $5 lot. Bots trade live from now on at Polymarket's real order-book
+        prices, so stats build up as windows open and resolve.
       </p>
       <div className="actions">
         <button
@@ -90,7 +90,7 @@ function EmptyFleet({ onNew }: { onNew: () => void }) {
           onClick={async () => {
             setBusy(true);
             try {
-              const r = await api.starterFleet({ backfillDays: 30, startBalance: 100, baseLot: 5 });
+              const r = await api.starterFleet({ backfillDays: 0, startBalance: 100, baseLot: 5 });
               await refresh();
               toast(`${r.created} bots started`);
             } catch (e) {

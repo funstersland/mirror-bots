@@ -121,7 +121,7 @@ export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyNa
                     return (
                       <tr key={t.id}>
                         <td>
-                          {pktStamp(t.hourTs)} {t.backtest && <span className="chip" style={{ height: 18, marginLeft: 4 }}>BT</span>}
+                          {pktStamp(t.hourTs)}
                         </td>
                         <td className={t.side === 'UP' ? 'up' : 'down'}>{t.side}</td>
                         <td className={cc === 'green' ? 'up' : cc === 'red' ? 'down' : 'muted'}>{cc ?? '—'}</td>
@@ -157,7 +157,7 @@ export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyNa
                   {trades && !trades.length && (
                     <tr>
                       <td colSpan={10} className="muted" style={{ textAlign: 'center', padding: 24 }}>
-                        {bot.backfillPending ? 'Downloading Polymarket history for the replay. This takes a few minutes the first time.' : 'No trades yet. The bot enters at the start of the next hour when its rule fires.'}
+                        No live trades yet. The bot enters as the next window opens when its rule fires.
                       </td>
                     </tr>
                   )}

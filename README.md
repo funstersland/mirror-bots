@@ -7,7 +7,7 @@ Everything uses real market data:
 - **Signals** come from real Binance BTCUSDT candles of the bot's timeframe.
 - **Entries** walk the live Polymarket order book of the chosen outcome when the window opens, like a market buy, and pay Polymarket's taker fee (`shares × 0.07 × p × (1 − p)`, read from the market).
 - **Results** come from Polymarket's resolution. 1h markets resolve on the Binance 1h candle, so they settle when it closes and are then checked against Polymarket. 5m and 15m markets resolve on Chainlink and settle when Polymarket resolves them.
-- **Replays** use Polymarket's recorded minute prices at each window's open and the real result (up to 30 days for 1H, 7 for 15M, 2 for 5M). Replayed trades are tagged BT.
+- **Live only.** There are no replays or backtests: every trade shown was entered live against the current order book.
 
 **Paper trading.** No orders are sent and no wallet or private key is used; balances are virtual. Each bot's fill ignores the other bots.
 
@@ -18,7 +18,6 @@ Everything uses real market data:
 - Bot cards: realized PnL, balance, balance curve, record, current and best streaks, max drawdown, runtime, and streak hit counts (`L2×4 L3×2 …`).
 - Sort and filter by top profit, top loss, top win streak, top loss streak, win rate, drawdown; filter by status, method, name.
 - Hourly PnL page: pick one or many dates (or 7d / 30d / 1y presets), see won and lost dollars per PKT hour plus the net, summed over the selection.
-- Backtest on create or reset: replay up to 365 days so stats and the calendar fill immediately. Backtest trades are tagged `BT` and can be hidden.
 - Email/password accounts. Each account sees only its own bots.
 
 ## Run it
@@ -56,7 +55,7 @@ and is capped by the bot's balance. Martingale bots wait for their last trade to
 server/            Fastify API, SQLite, engine
   strategies/      indicator helpers and the strategy rules
   engine/core.ts   pure trade maths, martingale, stats (unit tested)
-  engine/runner.ts hourly loop, settlement, backtest
+  engine/runner.ts window loop, entry and settlement
   market.ts        Binance candle feed (1h, 15m, 5m)
   polymarket.ts    Polymarket markets, order books, fees, price history
 web/src/           React UI

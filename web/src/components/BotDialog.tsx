@@ -99,9 +99,6 @@ function ladder(base: number, mult: number, resetAfter: number) {
   return out;
 }
 
-/** Polymarket keeps minute prices for 30 days; shorter windows mean many more markets to load. */
-const REPLAY_MAX: Record<Timeframe, number> = { '1h': 30, '15m': 7, '5m': 2 };
-
 const defaults = (s?: StrategyInfo): ParamValues => Object.fromEntries((s?.params ?? []).map((p) => [p.key, p.default]));
 
 interface Props {
@@ -123,9 +120,7 @@ export function BotDialog({ bot, onClose }: Props) {
   const [mgOn, setMgOn] = useState(bot?.martingale.enabled ?? false);
   const [mult, setMult] = useState<number | ''>(bot?.martingale.multiplier ?? 2);
   const [resetAfter, setResetAfter] = useState<number | ''>(bot?.martingale.resetAfter ?? 4);
-  const [backfill, setBackfill] = useState(7);
   const [tf, setTf] = useState<Timeframe>(bot?.timeframe ?? '1h');
-  const maxReplay = REPLAY_MAX[tf];
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -167,7 +162,7 @@ export function BotDialog({ bot, onClose }: Props) {
           baseLot: Number(lot),
           maxEntryPrice: Number(entry) / 100,
           martingale,
-          backfillDays: Math.min(backfill, maxReplay),
+          backfillDays: 0,
         });
         upsert(created);
         toast(`“${created.name}” is running`);
@@ -290,21 +285,6 @@ export function BotDialog({ bot, onClose }: Props) {
             </>
           )}
 
-          {!editing && (
-            <>
-              <div className="section-title label">History</div>
-              <div className="field">
-                <div className="seg">
-                  {[0, 1, 2, 7, 14, 30].filter((d) => d <= maxReplay).map((d) => (
-                    <button type="button" key={d} className={Math.min(backfill, maxReplay) === d ? 'on' : ''} onClick={() => setBackfill(d)}>
-                      {d === 0 ? 'Live only' : `${d}d`}
-                    </button>
-                  ))}
-                </div>
-                <span className="hint">Replays past hours using Polymarket's recorded share prices and real results (up to {maxReplay} days for {TF_LABEL[tf]} markets). Replayed trades are tagged BT.</span>
-              </div>
-            </>
-          )}
           {error && <div className="error">{error}</div>}
         </div>
         <div className="dialog-foot">
@@ -323,14 +303,13 @@ export function BotDialog({ bot, onClose }: Props) {
 export function ResetDialog({ bot, onClose }: { bot: Bot; onClose: () => void }) {
   const { upsert, toast } = useFleet();
   const [start, setStart] = useState<number | ''>(bot.startBalance);
-  const [days, setDays] = useState(bot.backfillDays);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   async function go() {
     if (!(Number(start) >= 5)) return setError('Starting balance must be at least $5.');
     setBusy(true);
     try {
-      upsert(await api.botAction(bot.id, 'reset', { startBalance: Number(start), backfillDays: days }));
+      upsert(await api.botAction(bot.id, 'reset', { startBalance: Number(start), backfillDays: 0 }));
       toast(`“${bot.name}” reset`);
       onClose();
     } catch (e) {
@@ -346,16 +325,6 @@ export function ResetDialog({ bot, onClose }: { bot: Bot; onClose: () => void })
           <span className="label">Starting balance</span>
           <MoneyInput value={start} onChange={setStart} min={5} />
         </label>
-        <div className="field">
-          <span className="label">History to replay</span>
-          <div className="seg">
-            {[0, 1, 2, 7, 14, 30].filter((d) => d <= ({ '1h': 30, '15m': 7, '5m': 2 } as const)[bot.timeframe]).map((d) => (
-              <button type="button" key={d} className={days === d ? 'on' : ''} onClick={() => setDays(d)}>
-                {d === 0 ? 'Live only' : `${d}d`}
-              </button>
-            ))}
-          </div>
-        </div>
         {error && <div className="error">{error}</div>}
       </div>
       <div className="dialog-foot">

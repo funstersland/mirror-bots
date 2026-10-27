@@ -180,12 +180,6 @@ export function BotCard({ bot, strategy, onSettings, onReset, onTrades }: Props)
         </div>
       </div>
 
-      {bot.backfillPending && (
-        <div className="open-pos">
-          <span className="chip">REPLAY</span>
-          <span>Loading Polymarket history for the last {bot.backfillDays} days…</span>
-        </div>
-      )}
 
       {bot.openTrade && (
         <div className="open-pos">

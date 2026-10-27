@@ -39,7 +39,7 @@ export function CalendarPage({ botId }: { botId?: number } = {}) {
   const [anchor, setAnchor] = useState<string | null>(today);
   const [pickedIds, setBotIds] = useState<number[]>([]);
   const botIds = useMemo(() => (botId ? [botId] : pickedIds.filter((id) => bots?.some((b) => b.id === id))), [botId, pickedIds, bots]);
-  const [liveOnly, setLiveOnly] = useState(false);
+  const liveOnly = true;
   const [view, setView] = useState<'split' | 'net'>('split');
   const [days, setDays] = useState<Map<string, DayBucket>>(new Map());
   const [hours, setHours] = useState<HourBucket[] | null>(null);
@@ -204,7 +204,7 @@ export function CalendarPage({ botId }: { botId?: number } = {}) {
             <div>
               <h2>{describe(dates)}</h2>
               <div className="sub">
-                {botId ? 'This bot' : botIds.length ? `${botIds.length} bot${botIds.length > 1 ? 's' : ''}` : `All ${tf ? TF_LABEL[tf] + ' ' : ''}bots`} · {liveOnly ? 'live trades only' : 'live + backtest'}
+                {botId ? 'This bot' : botIds.length ? `${botIds.length} bot${botIds.length > 1 ? 's' : ''}` : `All ${tf ? TF_LABEL[tf] + ' ' : ''}bots`} · live trades
               </div>
             </div>
             {totals && (
@@ -247,13 +247,6 @@ export function CalendarPage({ botId }: { botId?: number } = {}) {
               ))}
             </div>
           </div>}
-          <div className="toolbar" style={{ marginBottom: 4 }}>
-            <label className="check" style={{ fontSize: 13 }}>
-              <input type="checkbox" checked={liveOnly} onChange={(e) => setLiveOnly(e.target.checked)} />
-              <span className="box" />
-              <span className="dim">Live trades only (hide backtest)</span>
-            </label>
-          </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', margin: '6px 0' }}>
             <div className="legend" style={{ margin: 0 }}>

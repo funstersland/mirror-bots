@@ -3,7 +3,7 @@ import { TF_MS, TIMEFRAMES } from '../../shared/types.ts';
 import { config } from '../config.ts';
 import { db, getMeta, setMeta } from '../db.ts';
 import { candlesBefore, firstCandleTs, floorTo, getCandle, syncCandles } from '../market.ts';
-import { type PmMarket, cachedMarket, fillFromAsks, getAsks, getMarket, historyReady, syncHistory, takerFee } from '../polymarket.ts';
+import { type PmMarket, cachedMarket, fillFromAsks, getAsks, getMarket, takerFee } from '../polymarket.ts';
 import { WARMUP, decide } from '../strategies/index.ts';
 import { MIN_STAKE, type MgState, computeStats, nextMg, outcomeOf, payoff, round4, stakeFor } from './core.ts';
 
@@ -158,9 +158,10 @@ const runBackfill = db.transaction((botId: number, days: number) => {
 });
 
 /** Queues a replay; it runs once the shared Polymarket history is downloaded. */
-export function backfill(botId: number, days: number) {
+export function backfill(botId: number, _days: number) {
+  // Bots only trade live: Christian wants no replayed history in the stats.
   const b = q.bot.get(botId) as BotRow;
-  days = Math.min(days, config.replayDays[b.timeframe]);
+  const days = 0;
   db.prepare('UPDATE bots SET backfill_pending = ?, backfill_days = ? WHERE id = ?').run(days > 0 ? 1 : 0, days, botId);
   if (days <= 0) {
     db.prepare('UPDATE bots SET last_hour = ? WHERE id = ?').run(floorTo(Date.now(), b.timeframe), botId);
@@ -297,20 +298,6 @@ export async function tick(now = Date.now()) {
     // 3. Match 1h results with Polymarket once it resolves.
     await confirmResults(now, touched);
 
-    // 4. Keep replay data current and run queued replays.
-    const pending = q.pendingBackfills.all() as { id: number; backfill_days: number; timeframe: Timeframe }[];
-    if (now - lastHistorySync > 30 * 60_000) {
-      lastHistorySync = now;
-      (async () => {
-        for (const tf of TIMEFRAMES) await syncHistory(tf, config.replayDays[tf]);
-      })().catch((e) => log('history sync failed', e));
-    }
-    for (const p of pending) {
-      if (!historyReady(p.timeframe)) continue;
-      runBackfill(p.id, Math.min(p.backfill_days, config.replayDays[p.timeframe]));
-      log(`replayed bot ${p.id} (${p.timeframe}) over ${p.backfill_days} days`);
-    }
-
     for (const id of touched) refreshStats(id);
   } finally {
     ticking = false;
@@ -345,10 +332,30 @@ export function addTimeframeTwins() {
     db.prepare(`INSERT INTO bots (user_id, name, strategy, timeframe, params, start_balance, balance, base_lot, entry_price,
         mg_enabled, mg_multiplier, mg_reset_after, next_stake, status, running_since, last_hour, backfill_days, backfill_pending, created_at)
       SELECT user_id, name, strategy, ?, params, start_balance, start_balance, base_lot, entry_price,
-        mg_enabled, mg_multiplier, mg_reset_after, base_lot, 'running', ?, 0, ?, 1, ?
+        mg_enabled, mg_multiplier, mg_reset_after, base_lot, 'running', ?, 0, ?, 0, ?
       FROM bots b WHERE timeframe = '1h'
-        AND NOT EXISTS (SELECT 1 FROM bots o WHERE o.user_id = b.user_id AND o.timeframe = ?)`).run(tf, now, config.replayDays[tf], now, tf);
+        AND NOT EXISTS (SELECT 1 FROM bots o WHERE o.user_id = b.user_id AND o.timeframe = ?)`).run(tf, now, 0, now, tf);
   }
   setMeta('tf-twins', 'v1');
   log('added 15m and 5m twins of existing bots');
+}
+
+/** One-time: drops replayed (BT) trades so every number on screen comes from live trading. */
+export function dropReplays() {
+  if (getMeta('live-only') === 'v1') return;
+  const now = Date.now();
+  db.transaction(() => {
+    db.prepare('DELETE FROM trades WHERE backtest = 1').run();
+    for (const b of db.prepare('SELECT * FROM bots').all() as BotRow[]) {
+      const sum = db.prepare("SELECT COALESCE(SUM(pnl), 0) AS s FROM trades WHERE bot_id = ? AND status != 'open'").get(b.id) as { s: number };
+      const balance = round4(b.start_balance + sum.s);
+      const status = balance < MIN_STAKE ? 'busted' : b.status === 'busted' ? 'running' : b.status;
+      db.prepare(`UPDATE bots SET balance = ?, next_stake = base_lot, mg_loss_run = 0, backfill_days = 0, backfill_pending = 0,
+          status = ?, running_since = CASE WHEN ? = 'running' THEN COALESCE(running_since, ?) ELSE running_since END WHERE id = ?`)
+        .run(balance, status, status, now, b.id);
+    }
+  })();
+  for (const { id } of db.prepare('SELECT id FROM bots').all() as { id: number }[]) refreshStats(id);
+  setMeta('live-only', 'v1');
+  log('removed replayed trades; bots now show live trades only');
 }
