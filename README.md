@@ -7,6 +7,7 @@ Everything uses real market data:
 - **Signals** come from real Binance BTCUSDT candles of the bot's timeframe.
 - **Entries** walk the live Polymarket order book of the chosen outcome when the window opens, like a market buy, and pay Polymarket's taker fee (`shares × 0.07 × p × (1 − p)`, read from the market).
 - **Results** come from Polymarket's resolution. 1h markets resolve on the Binance 1h candle, so they settle when it closes and are then checked against Polymarket. 5m and 15m markets resolve on Chainlink and settle when Polymarket resolves them.
+- **Inverse bots.** Every bot has an inverse twin that runs the original's rule (with the original's current settings) and buys the opposite side in the same window, with its own balance, lot, max price and martingale.
 - **Live only.** There are no replays or backtests: every trade shown was entered live against the current order book.
 
 **Paper trading.** No orders are sent and no wallet or private key is used; balances are virtual. Each bot's fill ignores the other bots.

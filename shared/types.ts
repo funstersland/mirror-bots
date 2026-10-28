@@ -75,6 +75,8 @@ export interface Bot {
   baseLot: number;
   maxEntryPrice: number;
   backfillPending: boolean;
+  /** Set on inverse bots: the original bot whose signals they take the other side of. */
+  mirrorOf: number | null;
   martingale: { enabled: boolean; multiplier: number; resetAfter: number };
   nextStake: number;
   mgLossRun: number;

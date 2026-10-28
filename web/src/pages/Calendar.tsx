@@ -242,7 +242,7 @@ export function CalendarPage({ botId }: { botId?: number } = {}) {
                   className={botIds.includes(b.id) ? 'on' : ''}
                   onClick={() => setBotIds((ids) => (ids.includes(b.id) ? ids.filter((x) => x !== b.id) : [...ids, b.id]))}
                 >
-                  {b.name} <span className="muted">{TF_LABEL[b.timeframe]}</span>
+                  {b.name} <span className="muted">{TF_LABEL[b.timeframe]}{b.mirrorOf ? " inv" : ""}</span>
                 </button>
               ))}
             </div>

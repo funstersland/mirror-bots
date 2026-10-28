@@ -29,6 +29,7 @@ export interface BotRow {
   last_hour: number;
   backfill_days: number;
   backfill_pending: number;
+  mirror_of: number | null; // inverse bots: the original they mirror
   stats: string | null;
   created_at: number;
 }
@@ -96,7 +97,13 @@ const ENTRY_WINDOW: Record<Timeframe, number> = { '1h': 120_000, '15m': 90_000, 
 function signalFor(b: BotRow, hourTs: number) {
   const history = candlesBefore(b.timeframe, hourTs, WARMUP);
   if (history.length < WARMUP / 2) return null;
-  return decide(b.strategy, history, JSON.parse(b.params));
+  if (b.mirror_of === null) return decide(b.strategy, history, JSON.parse(b.params));
+  // Inverse bots run the original's rule with its current settings and take the other side.
+  const orig = q.bot.get(b.mirror_of) as BotRow | undefined;
+  if (!orig) return null;
+  const sig = decide(orig.strategy, history, JSON.parse(orig.params));
+  if (!sig) return null;
+  return { side: (sig.side === 'UP' ? 'DOWN' : 'UP') as Side, reason: `inverse: ${sig.reason}` };
 }
 
 function settle(b: BotRow, t: TradeRow, outcome: Side, confirmed: boolean, now: number) {
@@ -358,4 +365,31 @@ export function dropReplays() {
   for (const { id } of db.prepare('SELECT id FROM bots').all() as { id: number }[]) refreshStats(id);
   setMeta('live-only', 'v1');
   log('removed replayed trades; bots now show live trades only');
+}
+
+/** Adds an inverse twin of an original bot. It starts trading from the next window. */
+export function createInverse(origId: number) {
+  const now = Date.now();
+  const res = db.prepare(`INSERT INTO bots (user_id, name, strategy, timeframe, params, start_balance, balance, base_lot, entry_price,
+      mg_enabled, mg_multiplier, mg_reset_after, next_stake, status, running_since, last_hour, backfill_days, backfill_pending,
+      mirror_of, created_at)
+    SELECT user_id, name, strategy, timeframe, params, start_balance, start_balance, base_lot, entry_price,
+      mg_enabled, mg_multiplier, mg_reset_after, base_lot, 'running', ?, ?, 0, 0, id, ?
+    FROM bots WHERE id = ? AND mirror_of IS NULL`).run(now, 0, now, origId);
+  if (!res.changes) return null;
+  const id = Number(res.lastInsertRowid);
+  const b = q.bot.get(id) as BotRow;
+  db.prepare('UPDATE bots SET last_hour = ? WHERE id = ?').run(floorTo(now, b.timeframe), id);
+  refreshStats(id);
+  return id;
+}
+
+/** One-time: gives every original bot an inverse twin. */
+export function addInverseTwins() {
+  if (getMeta('inverse-twins') === 'v1') return;
+  const rows = db.prepare(`SELECT id FROM bots b WHERE mirror_of IS NULL
+    AND NOT EXISTS (SELECT 1 FROM bots i WHERE i.mirror_of = b.id)`).all() as { id: number }[];
+  db.transaction(() => rows.forEach((r) => createInverse(r.id)))();
+  setMeta('inverse-twins', 'v1');
+  log(`added ${rows.length} inverse bots`);
 }

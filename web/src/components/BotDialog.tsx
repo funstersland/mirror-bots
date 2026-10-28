@@ -107,7 +107,8 @@ interface Props {
 }
 
 export function BotDialog({ bot, onClose }: Props) {
-  const { strategies, upsert, toast } = useFleet();
+  const { strategies, upsert, refresh, toast } = useFleet();
+  const inverse = !!bot?.mirrorOf;
   const editing = !!bot;
   const [strategyId, setStrategyId] = useState(bot?.strategy ?? strategies[0]?.id ?? '');
   const strategy = strategies.find((s) => s.id === strategyId);
@@ -152,6 +153,7 @@ export function BotDialog({ bot, onClose }: Props) {
       if (editing) {
         upsert(await api.updateBot(bot!.id, { name, params, baseLot: Number(lot), maxEntryPrice: Number(entry) / 100, martingale }));
         toast('Settings saved');
+        if (!bot!.mirrorOf) refresh();
       } else {
         const created = await api.createBot({
           name,
@@ -165,6 +167,7 @@ export function BotDialog({ bot, onClose }: Props) {
           backfillDays: 0,
         });
         upsert(created);
+        await refresh(); // picks up its inverse twin
         toast(`“${created.name}” is running`);
       }
       onClose();
@@ -274,7 +277,13 @@ export function BotDialog({ bot, onClose }: Props) {
             )}
           </div>
 
-          {strategy && strategy.params.length > 0 && (
+          {inverse && (
+            <div className="callout">
+              This is an inverse bot. It runs the original bot's rule with the original's settings and buys the opposite side in the same
+              window. Change the rule on the original; lot, max price and martingale here are its own.
+            </div>
+          )}
+          {!inverse && strategy && strategy.params.length > 0 && (
             <>
               <div className="section-title label">Rule settings</div>
               <div className="field-row">

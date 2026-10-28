@@ -393,6 +393,7 @@ table.trades .r { text-align: right; }
 
 .card.clickable { cursor: pointer; }
 .chip.tf { height: 23px; background: transparent; border: 1px solid var(--line-2); color: var(--text); }
+.chip.inv { height: 23px; background: transparent; border: 1px solid var(--accent); color: var(--accent); letter-spacing: 0.04em; }
 .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); padding: 0 20px; }
 .tabs button { height: 40px; padding: 0 12px; border: 0; background: none; color: var(--text-2); font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }

@@ -51,7 +51,7 @@ export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyNa
           <div>
             <h2>{bot.name}</h2>
             <div className="mono muted" style={{ fontSize: 12, marginTop: 3 }}>
-              {strategyName} · BTC {TF_LABEL[bot.timeframe]} · lot {money(bot.baseLot)} · max {cents(bot.maxEntryPrice)}
+              {bot.mirrorOf ? 'Inverse of ' : ''}{strategyName} · BTC {TF_LABEL[bot.timeframe]} · lot {money(bot.baseLot)} · max {cents(bot.maxEntryPrice)}
               {bot.martingale.enabled && ` · MG ×${bot.martingale.multiplier}${bot.martingale.resetAfter ? ` reset L${bot.martingale.resetAfter}` : ''}`}
             </div>
           </div>

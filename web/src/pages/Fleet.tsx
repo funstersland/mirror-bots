@@ -20,6 +20,9 @@ const SORTS = {
 type SortKey = keyof typeof SORTS;
 
 const STATUSES = ['all', 'running', 'paused', 'busted'] as const;
+const KINDS = { all: 'Both', original: 'Original', inverse: 'Inverse' } as const;
+type Kind = keyof typeof KINDS;
+const kindOf = (b: Bot): Kind => (b.mirrorOf ? 'inverse' : 'original');
 
 function Summary({ bots }: { bots: Bot[] }) {
   const start = bots.reduce((a, b) => a + b.startBalance, 0);
@@ -80,7 +83,7 @@ function EmptyFleet({ onNew }: { onNew: () => void }) {
       <h2>No bots yet</h2>
       <p>
         Start one bot per strategy on each market to see which rules hold up. The starter fleet gives all 15 strategies a bot on the
-        BTC 1H, 15M and 5M markets (45 bots), each with $100 and a $5 lot. Bots trade live from now on at Polymarket's real order-book
+        BTC 1H, 15M and 5M markets (45 bots), plus an inverse twin of each that takes the opposite side (90 in total), each with $100 and a $5 lot. Bots trade live from now on at Polymarket's real order-book
         prices, so stats build up as windows open and resolve.
       </p>
       <div className="actions">
@@ -114,6 +117,7 @@ export function FleetPage() {
   const { bots, strategies } = useFleet();
   const [sort, setSort] = useState<SortKey>('profit');
   const [tf, setTf] = useState<Timeframe | 'all'>('all');
+  const [kind, setKind] = useState<Kind>('all');
   const [status, setStatus] = useState<(typeof STATUSES)[number]>('all');
   const [family, setFamily] = useState('all');
   const [q, setQ] = useState('');
@@ -127,12 +131,16 @@ export function FleetPage() {
     const needle = q.trim().toLowerCase();
     return bots
       .filter((b) => tf === 'all' || b.timeframe === tf)
+      .filter((b) => kind === 'all' || kindOf(b) === kind)
       .filter((b) => status === 'all' || b.status === status)
       .filter((b) => family === 'all' || stratById.get(b.strategy)?.family === family)
       .filter((b) => !needle || b.name.toLowerCase().includes(needle) || (stratById.get(b.strategy)?.name ?? '').toLowerCase().includes(needle))
       .sort(SORTS[sort].fn);
-  }, [bots, tf, status, family, q, sort, stratById]);
-  const inTf = useMemo(() => bots?.filter((b) => tf === 'all' || b.timeframe === tf) ?? [], [bots, tf]);
+  }, [bots, tf, kind, status, family, q, sort, stratById]);
+  const inTf = useMemo(
+    () => bots?.filter((b) => (tf === 'all' || b.timeframe === tf) && (kind === 'all' || kindOf(b) === kind)) ?? [],
+    [bots, tf, kind],
+  );
 
   const active = dialog && dialog.kind !== 'new' ? bots?.find((b) => b.id === dialog.id) : undefined;
 
@@ -160,6 +168,13 @@ export function FleetPage() {
             {TIMEFRAMES.map((t) => (
               <button key={t} className={tf === t ? 'on' : ''} onClick={() => setTf(t)}>
                 BTC {TF_LABEL[t]} <span className="muted">{bots.filter((b) => b.timeframe === t).length}</span>
+              </button>
+            ))}
+          </div>
+          <div className="seg" aria-label="Original or inverse bots">
+            {(Object.keys(KINDS) as Kind[]).map((k) => (
+              <button key={k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>
+                {KINDS[k]} {k !== 'all' && <span className="muted">{bots.filter((b) => kindOf(b) === k).length}</span>}
               </button>
             ))}
           </div>

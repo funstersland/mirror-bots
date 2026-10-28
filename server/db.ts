@@ -97,6 +97,7 @@ for (const sql of [
   'ALTER TABLE trades ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE bots ADD COLUMN backfill_pending INTEGER NOT NULL DEFAULT 0',
   "ALTER TABLE bots ADD COLUMN timeframe TEXT NOT NULL DEFAULT '1h'",
+  'ALTER TABLE bots ADD COLUMN mirror_of INTEGER REFERENCES bots(id) ON DELETE CASCADE',
 ]) {
   try {
     db.exec(sql);

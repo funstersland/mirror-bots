@@ -4,7 +4,7 @@ import type { Bot, BotStats, DayBucket, HourBucket, Trade } from '../shared/type
 import { PKT_OFFSET_MS } from '../shared/types.ts';
 import { requireUser } from './auth.ts';
 import { db } from './db.ts';
-import { type BotRow, type TradeRow, backfill, refreshStats, stopRunning } from './engine/runner.ts';
+import { type BotRow, type TradeRow, backfill, createInverse, refreshStats, stopRunning } from './engine/runner.ts';
 import { feedStatus, floorTo } from './market.ts';
 import { eventUrl, historyStatus } from './polymarket.ts';
 import { getStrategy, listStrategies, normalizeParams } from './strategies/index.ts';
@@ -64,6 +64,7 @@ function botToApi(b: BotRow, open: TradeRow | undefined): Bot {
     baseLot: b.base_lot,
     maxEntryPrice: b.entry_price,
     backfillPending: !!b.backfill_pending,
+    mirrorOf: b.mirror_of,
     martingale: { enabled: !!b.mg_enabled, multiplier: b.mg_multiplier, resetAfter: b.mg_reset_after },
     nextStake: b.mg_enabled ? b.next_stake : b.base_lot,
     mgLossRun: b.mg_loss_run,
@@ -80,7 +81,14 @@ function ownedBot(userId: number, id: number) {
   return db.prepare('SELECT * FROM bots WHERE id = ? AND user_id = ?').get(id, userId) as BotRow | undefined;
 }
 
+/** Creates a bot and its inverse twin; returns the original's id. */
 function createBot(userId: number, input: z.infer<typeof botInput>) {
+  const id = createOriginal(userId, input);
+  createInverse(id);
+  return id;
+}
+
+function createOriginal(userId: number, input: z.infer<typeof botInput>) {
   const params = normalizeParams(input.strategy, input.params);
   const now = Date.now();
   const res = db.prepare(`INSERT INTO bots (user_id, name, strategy, timeframe, params, start_balance, balance, base_lot, entry_price,
@@ -171,7 +179,7 @@ export function apiRoutes(app: FastifyInstance) {
       db.prepare(`UPDATE bots SET name = ?, params = ?, base_lot = ?, entry_price = ?, mg_enabled = ?, mg_multiplier = ?,
           mg_reset_after = ?, next_stake = ?, mg_loss_run = ? WHERE id = ?`).run(
         p.name ?? b.name,
-        p.params ? JSON.stringify(normalizeParams(b.strategy, p.params)) : b.params,
+        p.params && b.mirror_of === null ? JSON.stringify(normalizeParams(b.strategy, p.params)) : b.params,
         lot,
         p.maxEntryPrice ?? b.entry_price,
         mg.enabled ? 1 : 0,
@@ -181,6 +189,8 @@ export function apiRoutes(app: FastifyInstance) {
         restart ? 0 : b.mg_loss_run,
         b.id,
       );
+      // Inverse twins follow the original's rule settings.
+      if (b.mirror_of === null) db.prepare('UPDATE bots SET params = (SELECT params FROM bots WHERE id = ?) WHERE mirror_of = ?').run(b.id, b.id);
       return botToApi(ownedBot(req.userId, b.id)!, undefined);
     });
 
@@ -216,6 +226,14 @@ export function apiRoutes(app: FastifyInstance) {
           break;
         }
         case 'clone': {
+          if (b.mirror_of !== null) {
+            const id = createInverse(b.mirror_of)!;
+            db.prepare(`UPDATE bots SET name = ?, base_lot = ?, next_stake = ?, entry_price = ?, mg_enabled = ?, mg_multiplier = ?,
+                mg_reset_after = ?, start_balance = ?, balance = ? WHERE id = ?`).run(`${b.name} copy`.slice(0, 40), b.base_lot, b.base_lot,
+              b.entry_price, b.mg_enabled, b.mg_multiplier, b.mg_reset_after, b.start_balance, b.start_balance, id);
+            refreshStats(id);
+            return botToApi(ownedBot(req.userId, id)!, undefined);
+          }
           const id = createBot(req.userId, {
             name: `${b.name} copy`.slice(0, 40),
             strategy: b.strategy,

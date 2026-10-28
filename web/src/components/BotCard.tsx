@@ -23,7 +23,7 @@ export function HitChips({ hits, kind, min = 2, max = 6 }: { hits: StreakHit[]; 
 }
 
 function MoreMenu({ bot, onClose }: { bot: Bot; onClose: () => void }) {
-  const { upsert, remove, toast } = useFleet();
+  const { refresh, remove, toast } = useFleet();
   const ref = useRef<HTMLDivElement>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   useEffect(() => {
@@ -36,7 +36,7 @@ function MoreMenu({ bot, onClose }: { bot: Bot; onClose: () => void }) {
       <button
         onClick={async () => {
           const b = await api.botAction(bot.id, 'clone');
-          upsert(b);
+          await refresh();
           toast(`Cloned as “${b.name}”`);
           onClose();
         }}
@@ -53,6 +53,7 @@ function MoreMenu({ bot, onClose }: { bot: Bot; onClose: () => void }) {
           onClick={async () => {
             await api.deleteBot(bot.id);
             remove(bot.id);
+            if (!bot.mirrorOf) await refresh(); // its inverse twin goes too
             toast(`Deleted “${bot.name}”`);
           }}
         >
@@ -107,6 +108,7 @@ export function BotCard({ bot, strategy, onSettings, onReset, onTrades }: Props)
             {strategy && strategy.name !== bot.name ? strategy.name : (strategy?.family ?? bot.strategy)} · BTC {TF_LABEL[bot.timeframe]}{bot.params.invert ? ' · flipped' : ''}
           </div>
         </div>
+        {bot.mirrorOf && <span className="chip inv" title="Takes the opposite side of the original bot's signal">INVERSE</span>}
         <span className="chip tf">{TF_LABEL[bot.timeframe]}</span>
         <span className={`status ${bot.status}`}>
           <i />
