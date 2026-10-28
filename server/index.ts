@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { authRoutes } from './auth.ts';
 import { config } from './config.ts';
-import { addTimeframeTwins, addInverseTwins, dropReplays, migratePricing, startEngine } from './engine/runner.ts';
+import { addTimeframeTwins, addInverseTwins, nameInverseTwins, dropReplays, migratePricing, startEngine } from './engine/runner.ts';
 import { loadCandles, syncCandles } from './market.ts';
 import { apiRoutes } from './routes.ts';
 
@@ -30,7 +30,8 @@ await syncCandles();
 migratePricing();
 addTimeframeTwins();
 dropReplays();
-  addInverseTwins();
+addInverseTwins();
+nameInverseTwins();
 startEngine();
 
 await app.listen({ port: config.port, host: config.host });

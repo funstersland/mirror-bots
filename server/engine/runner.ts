@@ -373,7 +373,7 @@ export function createInverse(origId: number) {
   const res = db.prepare(`INSERT INTO bots (user_id, name, strategy, timeframe, params, start_balance, balance, base_lot, entry_price,
       mg_enabled, mg_multiplier, mg_reset_after, next_stake, status, running_since, last_hour, backfill_days, backfill_pending,
       mirror_of, created_at)
-    SELECT user_id, name, strategy, timeframe, params, start_balance, start_balance, base_lot, entry_price,
+    SELECT user_id, substr('Inverse ' || name, 1, 40), strategy, timeframe, params, start_balance, start_balance, base_lot, entry_price,
       mg_enabled, mg_multiplier, mg_reset_after, base_lot, 'running', ?, ?, 0, 0, id, ?
     FROM bots WHERE id = ? AND mirror_of IS NULL`).run(now, 0, now, origId);
   if (!res.changes) return null;
@@ -392,4 +392,13 @@ export function addInverseTwins() {
   db.transaction(() => rows.forEach((r) => createInverse(r.id)))();
   setMeta('inverse-twins', 'v1');
   log(`added ${rows.length} inverse bots`);
+}
+
+/** One-time: puts "Inverse" in the name of inverse bots made before it was added automatically. */
+export function nameInverseTwins() {
+  if (getMeta('inverse-names') === 'v1') return;
+  const res = db.prepare(`UPDATE bots SET name = substr('Inverse ' || name, 1, 40)
+    WHERE mirror_of IS NOT NULL AND name NOT LIKE '%inverse%'`).run();
+  setMeta('inverse-names', 'v1');
+  log(`named ${res.changes} inverse bots`);
 }
