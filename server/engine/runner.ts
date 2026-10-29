@@ -465,6 +465,8 @@ export async function mirrorInverseHistory() {
       let mg: MgState = { ...mgOf(inv), nextStake: inv.base_lot, lossRun: 0 };
       let balance = inv.start_balance;
       for (const o of orig) {
+        // Out of money: a real bot stops here, so the mirror does too.
+        if (balance < MIN_STAKE) break;
         const side = opposite(o.side);
         let t = mine.get(o.hour_ts);
         if (t && t.side !== side) {
@@ -478,7 +480,9 @@ export async function mirrorInverseHistory() {
             missing++;
             continue;
           }
-          const stake = stakeFor(mg, balance);
+          // Stake and fee together must fit in the balance.
+          const affordable = Math.floor((balance / (1 + p.feeRate * (1 - p.price))) * 100) / 100;
+          const stake = Math.min(stakeFor(mg, balance), affordable);
           if (stake < MIN_STAKE) continue;
           const shares = Math.floor((stake / p.price) * 100) / 100;
           const cost = round4(shares * p.price);
