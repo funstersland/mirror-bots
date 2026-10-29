@@ -3,7 +3,7 @@ import { TF_MS, TIMEFRAMES } from '../../shared/types.ts';
 import { config } from '../config.ts';
 import { db, getMeta, setMeta } from '../db.ts';
 import { candlesBefore, firstCandleTs, floorTo, getCandle, syncCandles } from '../market.ts';
-import { type PmMarket, cachedMarket, fillFromAsks, getAsks, getMarket, takerFee } from '../polymarket.ts';
+import { type PmMarket, cachedMarket, fillFromAsks, getAsks, getMarket, takerFee, tradedPriceNear } from '../polymarket.ts';
 import { WARMUP, decide } from '../strategies/index.ts';
 import { MIN_STAKE, type MgState, computeStats, nextMg, outcomeOf, payoff, round4, stakeFor } from './core.ts';
 
@@ -57,7 +57,9 @@ const log = (...a: unknown[]) => console.log('[engine]', ...a);
 
 const q = {
   bot: db.prepare('SELECT * FROM bots WHERE id = ?'),
-  runningBots: db.prepare("SELECT * FROM bots WHERE status = 'running' AND backfill_pending = 0"),
+  // Originals first, so their inverse twins can mirror the trade they just took.
+  runningBots: db.prepare("SELECT * FROM bots WHERE status = 'running' AND backfill_pending = 0 ORDER BY mirror_of IS NOT NULL, id"),
+  tradeAt: db.prepare('SELECT side, reason FROM trades WHERE bot_id = ? AND hour_ts = ?'),
   pendingBackfills: db.prepare('SELECT id, backfill_days, timeframe FROM bots WHERE backfill_pending = 1'),
   openFor: db.prepare("SELECT 1 FROM trades WHERE bot_id = ? AND status = 'open' LIMIT 1"),
   openTrades: db.prepare(`SELECT t.*, b.timeframe AS tf FROM trades t JOIN bots b ON b.id = t.bot_id
@@ -97,16 +99,17 @@ export function stopRunning(b: BotRow, status: BotRow['status'], now: number) {
 /** How long after a window opens a bot may still enter. */
 const ENTRY_WINDOW: Record<Timeframe, number> = { '1h': 120_000, '15m': 90_000, '5m': 60_000 };
 
+const opposite = (s: Side): Side => (s === 'UP' ? 'DOWN' : 'UP');
+
 function signalFor(b: BotRow, hourTs: number) {
+  // Inverse bots are a strict mirror: they take the other side of exactly the trades their original took.
+  if (b.mirror_of !== null) {
+    const t = q.tradeAt.get(b.mirror_of, hourTs) as { side: Side; reason: string | null } | undefined;
+    return t ? { side: opposite(t.side), reason: `inverse: ${t.reason ?? ''}` } : null;
+  }
   const history = candlesBefore(b.timeframe, hourTs, WARMUP);
   if (history.length < WARMUP / 2) return null;
-  if (b.mirror_of === null) return decide(b.strategy, history, JSON.parse(b.params));
-  // Inverse bots run the original's rule with its current settings and take the other side.
-  const orig = q.bot.get(b.mirror_of) as BotRow | undefined;
-  if (!orig) return null;
-  const sig = decide(orig.strategy, history, JSON.parse(orig.params));
-  if (!sig) return null;
-  return { side: (sig.side === 'UP' ? 'DOWN' : 'UP') as Side, reason: `inverse: ${sig.reason}` };
+  return decide(b.strategy, history, JSON.parse(b.params));
 }
 
 function settle(b: BotRow, t: TradeRow, outcome: Side, confirmed: boolean, now: number) {
@@ -199,8 +202,11 @@ async function enterLive(b: BotRow, hour: number, markets: Map<string, Promise<P
     fill = fillFromAsks(asks, stake, m.feeRate);
   }
   if (!fill || stake < MIN_STAKE) return log(`${b.name}: empty order book for ${sig.side}`);
-  if (fill.avgPrice > b.entry_price) return log(`${b.name}: ${sig.side} costs ${fill.avgPrice.toFixed(3)}, above max ${b.entry_price}`);
-  if (fill.shares < m.minSize) return log(`${b.name}: ${fill.shares} shares is below the ${m.minSize}-share minimum`);
+  // Inverse bots never skip a trade their original took, so only originals apply the price and size limits.
+  if (b.mirror_of === null) {
+    if (fill.avgPrice > b.entry_price) return log(`${b.name}: ${sig.side} costs ${fill.avgPrice.toFixed(3)}, above max ${b.entry_price}`);
+    if (fill.shares < m.minSize) return log(`${b.name}: ${fill.shares} shares is below the ${m.minSize}-share minimum`);
+  }
   q.insertTrade.run({
     bot_id: b.id,
     hour_ts: hour,
@@ -298,6 +304,9 @@ export async function tick(now = Date.now()) {
       const inWindow = now - win <= ENTRY_WINDOW[tf];
       const ready = !!getCandle(tf, win - TF_MS[tf]) && !(b.mg_enabled && q.openFor.get(b.id));
       if (inWindow && !ready) continue;
+      // An inverse waits until its original has decided on this window.
+      const orig = b.mirror_of === null ? null : (q.bot.get(b.mirror_of) as BotRow | undefined);
+      if (inWindow && orig && orig.status === 'running' && orig.last_hour < win) continue;
       if (inWindow) {
         try {
           await enterLive(q.bot.get(b.id) as BotRow, win, markets);
@@ -408,4 +417,107 @@ export function nameInverseTwins() {
     WHERE mirror_of IS NOT NULL AND name NOT LIKE '%inverse%'`).run();
   setMeta('inverse-names', 'v1');
   log(`named ${res.changes} inverse bots`);
+}
+
+/** Seconds after a window opens that bots usually fill; used to price mirrored trades from history. */
+const TYPICAL_ENTRY_MS = 15_000;
+
+/**
+ * One-time: rebuilds every inverse bot's history as a strict mirror of its original. Trades in windows the
+ * original did not trade are removed; windows the original traded but the inverse skipped are added at
+ * Polymarket's traded price for the opposite token at entry time, settled on Polymarket's result.
+ * Balances, martingale state and stats are then recomputed in window order.
+ */
+export async function mirrorInverseHistory() {
+  if (getMeta('strict-mirror') === 'v1') return;
+  const inverses = db.prepare('SELECT * FROM bots WHERE mirror_of IS NOT NULL').all() as BotRow[];
+  const origTrades = db.prepare('SELECT * FROM trades WHERE bot_id = ? ORDER BY hour_ts');
+  const ownTrades = db.prepare('SELECT * FROM trades WHERE bot_id = ? ORDER BY hour_ts');
+
+  // Fetch everything from Polymarket first; the rewrite itself is one transaction.
+  const priced = new Map<string, { price: number; outcome: Side | null; feeRate: number; slug: string; minSize: number } | null>();
+  for (const inv of inverses) {
+    const mine = new Map((ownTrades.all(inv.id) as TradeRow[]).map((t) => [t.hour_ts, t]));
+    for (const o of origTrades.all(inv.mirror_of) as TradeRow[]) {
+      const side = opposite(o.side);
+      if (mine.get(o.hour_ts)?.side === side) continue;
+      const key = `${inv.timeframe}:${o.hour_ts}:${side}`;
+      if (priced.has(key)) continue;
+      try {
+        const m = await getMarket(inv.timeframe, o.hour_ts, true);
+        const price = m ? await tradedPriceNear(side === 'UP' ? m.upToken : m.downToken, o.hour_ts + TYPICAL_ENTRY_MS) : null;
+        priced.set(key, m && price ? { price, outcome: m.outcome, feeRate: m.feeRate, slug: m.slug, minSize: m.minSize } : null);
+      } catch (e) {
+        log(`mirror: ${key}: ${(e as Error).message}`);
+        priced.set(key, null);
+      }
+    }
+  }
+
+  let added = 0;
+  let removed = 0;
+  let missing = 0;
+  db.transaction(() => {
+    for (const inv of inverses) {
+      const mine = new Map((ownTrades.all(inv.id) as TradeRow[]).map((t) => [t.hour_ts, t]));
+      const orig = origTrades.all(inv.mirror_of) as TradeRow[];
+      const keep = new Set<number>();
+      let mg: MgState = { ...mgOf(inv), nextStake: inv.base_lot, lossRun: 0 };
+      let balance = inv.start_balance;
+      for (const o of orig) {
+        const side = opposite(o.side);
+        let t = mine.get(o.hour_ts);
+        if (t && t.side !== side) {
+          db.prepare('DELETE FROM trades WHERE id = ?').run(t.id);
+          removed++;
+          t = undefined;
+        }
+        if (!t) {
+          const p = priced.get(`${inv.timeframe}:${o.hour_ts}:${side}`);
+          if (!p) {
+            missing++;
+            continue;
+          }
+          const stake = stakeFor(mg, balance);
+          if (stake < MIN_STAKE) continue;
+          const shares = Math.floor((stake / p.price) * 100) / 100;
+          const cost = round4(shares * p.price);
+          const row = {
+            bot_id: inv.id, hour_ts: o.hour_ts, side, stake: cost, price: p.price, shares, fee: takerFee(shares, p.price, p.feeRate),
+            mg_step: inv.mg_enabled ? mg.lossRun : 0, status: 'open' as const, pnl: null, balance_after: null, backtest: 0,
+            confirmed: 0, slug: p.slug, reason: `inverse: ${o.reason ?? ''}`,
+          };
+          const id = Number(q.insertTrade.run(row).lastInsertRowid);
+          t = { id, ...row } as TradeRow;
+          added++;
+          // Settle on Polymarket's own result when it has one; otherwise the engine settles it as usual.
+          if (o.status !== 'open' && p.outcome) {
+            const won = p.outcome === side;
+            t.status = won ? 'won' : 'lost';
+            t.pnl = payoff(shares, cost, row.fee, won);
+            t.confirmed = 1;
+          }
+        }
+        keep.add(t.id);
+        if (t.status !== 'open') {
+          const won = t.status === 'won';
+          const pnl = payoff(t.shares ?? 0, t.stake, t.fee, won);
+          balance = round4(balance + pnl);
+          mg = nextMg(mg, t.stake, won);
+          q.settleTrade.run(t.status, pnl, balance, t.confirmed, t.id);
+        }
+      }
+      for (const t of mine.values()) {
+        if (!keep.has(t.id) && (db.prepare('DELETE FROM trades WHERE id = ?').run(t.id).changes)) removed++;
+      }
+      const status = balance < MIN_STAKE ? 'busted' : inv.status === 'busted' ? 'running' : inv.status;
+      db.prepare(`UPDATE bots SET balance = ?, next_stake = ?, mg_loss_run = ?, status = ?,
+          running_since = CASE WHEN ? = 'running' THEN COALESCE(running_since, ?) ELSE running_since END WHERE id = ?`)
+        .run(balance, mg.nextStake, mg.lossRun, status, status, Date.now(), inv.id);
+    }
+  })();
+  for (const inv of inverses) refreshStats(inv.id);
+  // Retried on the next boot if Polymarket had no price for some window; the rebuild is idempotent.
+  if (!missing) setMeta('strict-mirror', 'v1');
+  log(`mirror: rebuilt ${inverses.length} inverse bots as strict mirrors: ${added} trades added, ${removed} removed, ${missing} without Polymarket prices`);
 }
