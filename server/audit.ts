@@ -69,13 +69,17 @@ async function resolution(slug: string): Promise<Resolution | null> {
   };
 }
 
-/** Polymarket's traded prices for a token from a minute before the window opens to three minutes after. */
+/**
+ * Polymarket's traded prices for a token in the first minute of the window, when bots enter. Prints are
+ * sparse right after a window opens, so fewer than two of them is too little to judge a fill by.
+ */
 async function pricesAround(token: string, startTs: number): Promise<number[]> {
   const s = Math.floor(startTs / 1000);
   const res = await getJson<{ history?: { t: number; p: number }[] }>(
-    `${CLOB}/prices-history?market=${token}&startTs=${s - 60}&endTs=${s + 180}&fidelity=1`,
+    `${CLOB}/prices-history?market=${token}&startTs=${s}&endTs=${s + 60}&fidelity=1`,
   );
-  return (res.history ?? []).map((h) => h.p).filter((p) => p > 0 && p < 1);
+  const pts = (res.history ?? []).filter((h) => h.t >= s && h.t <= s + 60).map((h) => h.p).filter((p) => p > 0 && p < 1);
+  return pts.length >= 2 ? pts : [];
 }
 
 async function pool<T>(items: T[], n: number, fn: (x: T) => Promise<void>) {

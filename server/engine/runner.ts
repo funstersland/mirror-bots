@@ -511,6 +511,7 @@ export async function mirrorInverseHistory() {
         if (!keep.has(t.id) && (db.prepare('DELETE FROM trades WHERE id = ?').run(t.id).changes)) removed++;
       }
       const status = balance < MIN_STAKE ? 'busted' : inv.status === 'busted' ? 'running' : inv.status;
+      if (status !== 'running') log(`mirror: ${inv.name} (${inv.timeframe}) is ${status} at $${balance.toFixed(2)} and will not mirror new trades`);
       db.prepare(`UPDATE bots SET balance = ?, next_stake = ?, mg_loss_run = ?, status = ?,
           running_since = CASE WHEN ? = 'running' THEN COALESCE(running_since, ?) ELSE running_since END WHERE id = ?`)
         .run(balance, mg.nextStake, mg.lossRun, status, status, Date.now(), inv.id);
