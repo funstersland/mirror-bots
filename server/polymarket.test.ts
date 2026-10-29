@@ -24,7 +24,10 @@ test('market buy walks the asks from the cheapest level', () => {
   // 4 shares @0.51 = 2.04, then 2.96/0.52 = 5.692 shares, capped at 5 → 2.60, then rest at 0.99
   assert.equal(f.bestAsk, 0.51);
   assert.ok(f.avgPrice > 0.51 && f.avgPrice < 0.6);
-  assert.equal(f.cost, 5);
+  // 9.3636 shares are booked as 9.36, so the cost is those 9.36 shares at the average price, just under $5.
+  assert.equal(f.shares, 9.36);
+  assert.ok(f.cost <= 5 && f.cost > 4.99);
+  assert.ok(Math.abs(f.cost - f.shares * f.avgPrice) < 1e-4);
   assert.ok(f.fee > 0);
 });
 

@@ -7,10 +7,10 @@ import { Sparkline } from './Sparkline.tsx';
 import { CalendarPage } from '../pages/Calendar.tsx';
 import { TF_LABEL } from '../../../shared/types.ts';
 
-function candleColor(t: Trade) {
+/** Which way the market resolved: the side that won. */
+function outcomeOf(t: Trade) {
   if (t.status === 'open') return null;
-  const up = (t.status === 'won') === (t.side === 'UP');
-  return up ? 'green' : 'red';
+  return (t.status === 'won') === (t.side === 'UP') ? 'UP' : 'DOWN';
 }
 
 export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyName: string; onClose: () => void }) {
@@ -103,9 +103,9 @@ export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyNa
               <table className="trades">
                 <thead>
                   <tr>
-                    <th>Hour (PKT)</th>
+                    <th>Window (PKT)</th>
                     <th>Bet</th>
-                    <th>Candle</th>
+                    <th>Outcome</th>
                     <th className="r">Cost</th>
                     <th className="r">Shares @ price</th>
                     <th className="r">Fee</th>
@@ -117,14 +117,14 @@ export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyNa
                 </thead>
                 <tbody>
                   {trades?.map((t) => {
-                    const cc = candleColor(t);
+                    const outcome = outcomeOf(t);
                     return (
                       <tr key={t.id}>
                         <td>
                           {pktStamp(t.hourTs)}
                         </td>
                         <td className={t.side === 'UP' ? 'up' : 'down'}>{t.side}</td>
-                        <td className={cc === 'green' ? 'up' : cc === 'red' ? 'down' : 'muted'}>{cc ?? '—'}</td>
+                        <td className={outcome === 'UP' ? 'up' : outcome === 'DOWN' ? 'down' : 'muted'}>{outcome ?? '—'}</td>
                         <td className="r">
                           {money(t.stake)}
                           {t.mgStep > 0 && <span className="muted"> L{t.mgStep}</span>}

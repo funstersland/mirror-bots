@@ -26,7 +26,7 @@ export const pktClock = (ts: number) => {
 };
 export const pktStamp = (ts: number) => {
   const d = pk(ts);
-  return `${p2(d.getUTCDate())} ${MONTHS[d.getUTCMonth()]} ${p2(d.getUTCHours())}:00`;
+  return `${p2(d.getUTCDate())} ${MONTHS[d.getUTCMonth()]} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`;
 };
 export const prettyDate = (iso: string) => {
   const [y, m, d] = iso.split('-').map(Number);

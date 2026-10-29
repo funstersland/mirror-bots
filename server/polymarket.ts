@@ -80,7 +80,7 @@ export function slugForHour(hourTs: number): string {
 
 export const eventUrl = (slug: string) => `https://polymarket.com/event/${slug}`;
 
-async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
+export async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
   let last: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -198,12 +198,14 @@ export function fillFromAsks(asks: { price: string; size: string }[], stake: num
     left -= take * l.price;
     fee += takerFee(take, l.price, feeRate);
   }
-  const cost = stake - left;
   if (shares <= 0) return null;
+  // Shares are booked to the cent; the cost is what those whole cents of shares cost at the average fill.
+  const avgPrice = (stake - left) / shares;
+  const booked = Math.floor(shares * 100) / 100;
   return {
-    shares: Math.floor(shares * 100) / 100,
-    cost: Math.round(cost * 1e5) / 1e5,
-    avgPrice: cost / shares,
+    shares: booked,
+    cost: Math.round(booked * avgPrice * 1e5) / 1e5,
+    avgPrice,
     fee: Math.round(fee * 1e5) / 1e5,
     bestAsk: levels[0].price,
   };

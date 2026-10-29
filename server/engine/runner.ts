@@ -70,6 +70,9 @@ const q = {
       @confirmed, @slug, @reason)`),
   settleTrade: db.prepare('UPDATE trades SET status = ?, pnl = ?, balance_after = ?, confirmed = ? WHERE id = ?'),
   confirm: db.prepare('UPDATE trades SET confirmed = 1 WHERE id = ?'),
+  balanceOf: db.prepare('SELECT balance_after FROM trades WHERE id = ?'),
+  shiftBalances: db.prepare(`UPDATE trades SET balance_after = ROUND(balance_after + ?, 4)
+    WHERE bot_id = ? AND hour_ts > ? AND status != 'open'`),
   saveBot: db.prepare(`UPDATE bots SET balance = @balance, next_stake = @next_stake, mg_loss_run = @mg_loss_run, status = @status,
     run_ms = @run_ms, running_since = @running_since, last_hour = @last_hour, backfill_pending = @backfill_pending WHERE id = @id`),
   tradesForStats: db.prepare('SELECT status, pnl, balance_after, stake, hour_ts FROM trades WHERE bot_id = ? ORDER BY hour_ts'),
@@ -236,7 +239,11 @@ async function confirmResults(now: number, touched: Set<number>) {
           const b = q.bot.get(t.bot_id) as BotRow;
           const pnl = payoff(t.shares ?? 0, t.stake, t.fee, wonByPolymarket);
           b.balance = round4(b.balance + pnl - (t.pnl ?? 0));
-          q.settleTrade.run(wonByPolymarket ? 'won' : 'lost', pnl, t.balance_after! + pnl - (t.pnl ?? 0), 1, t.id);
+          const delta = pnl - (t.pnl ?? 0);
+          const { balance_after: before } = q.balanceOf.get(t.id) as { balance_after: number };
+          q.settleTrade.run(wonByPolymarket ? 'won' : 'lost', pnl, round4(before + delta), 1, t.id);
+          // Later trades of this bot were settled on the old balance: carry the correction forward.
+          q.shiftBalances.run(delta, t.bot_id, t.hour_ts);
           q.saveBot.run(b);
           log(`corrected trade ${t.id} to Polymarket result ${m.outcome}`);
         } else q.confirm.run(t.id);
