@@ -503,6 +503,13 @@ export async function mirrorInverseHistory() {
           }
         }
         keep.add(t.id);
+        if (t.stake + t.fee > balance) {
+          // The bot could only afford a smaller order: same price, fewer shares.
+          const k = balance / (t.stake + t.fee);
+          const shares = Math.floor((t.shares ?? 0) * k * 100) / 100;
+          t = { ...t, shares, stake: round4(shares * t.price), fee: round4(t.fee * k) };
+          db.prepare('UPDATE trades SET shares = ?, stake = ?, fee = ? WHERE id = ?').run(t.shares, t.stake, t.fee, t.id);
+        }
         if (t.status !== 'open') {
           const won = t.status === 'won';
           const pnl = payoff(t.shares ?? 0, t.stake, t.fee, won);
