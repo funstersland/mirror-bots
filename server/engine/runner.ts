@@ -533,3 +533,22 @@ export async function mirrorInverseHistory() {
   if (!missing) setMeta('strict-mirror', 'v1');
   log(`mirror: rebuilt ${inverses.length} inverse bots as strict mirrors: ${added} trades added, ${removed} removed, ${missing} without Polymarket prices`);
 }
+
+/** One-time fresh start (Christian, 2026-10-29): every bot's trades are deleted and it restarts at its start balance. */
+export function freshStart() {
+  if (getMeta('fresh-start') === '2026-10-29') return;
+  const now = Date.now();
+  db.transaction(() => {
+    db.prepare('DELETE FROM trades').run();
+    for (const b of db.prepare('SELECT id, timeframe FROM bots').all() as { id: number; timeframe: Timeframe }[]) {
+      db.prepare(`UPDATE bots SET balance = start_balance, next_stake = base_lot, mg_loss_run = 0, status = 'running', run_ms = 0,
+          running_since = ?, last_hour = ?, stats = NULL, backfill_days = 0, backfill_pending = 0 WHERE id = ?`)
+        .run(now, floorTo(now, b.timeframe), b.id);
+    }
+  })();
+  for (const { id } of db.prepare('SELECT id FROM bots').all() as { id: number }[]) refreshStats(id);
+  // Nothing left to mirror from before the reset.
+  setMeta('strict-mirror', 'v1');
+  setMeta('fresh-start', '2026-10-29');
+  log('fresh start: deleted all trades; every bot restarts at its start balance');
+}
