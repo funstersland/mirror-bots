@@ -7,10 +7,10 @@ import { Sparkline } from './Sparkline.tsx';
 import { CalendarPage } from '../pages/Calendar.tsx';
 import { TF_LABEL } from '../../../shared/types.ts';
 
-function candleColor(t: Trade) {
+/** Which way the market resolved: the side that won. */
+function outcomeOf(t: Trade) {
   if (t.status === 'open') return null;
-  const up = (t.status === 'won') === (t.side === 'UP');
-  return up ? 'green' : 'red';
+  return (t.status === 'won') === (t.side === 'UP') ? 'UP' : 'DOWN';
 }
 
 export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyName: string; onClose: () => void }) {
@@ -30,6 +30,10 @@ export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyNa
   }, [onClose]);
 
   const kv: [string, React.ReactNode][] = [
+    ['Total trades', `${s.trades + s.open}`],
+    ['Won', <span className="up">{s.wins}</span>],
+    ['Lost', <span className="down">{s.losses}</span>],
+    ['Open', `${s.open}`],
     ['Realized', <span className={tone(s.realized)}>{signed(s.realized)}</span>],
     ['Balance', money(bot.balance)],
     ['Win rate', `${pct(s.winRate, 1)} · ${s.wins}/${s.trades}`],
@@ -51,7 +55,7 @@ export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyNa
           <div>
             <h2>{bot.name}</h2>
             <div className="mono muted" style={{ fontSize: 12, marginTop: 3 }}>
-              {bot.mirrorOf ? 'Inverse of ' : ''}{strategyName} · BTC {TF_LABEL[bot.timeframe]} · lot {money(bot.baseLot)} · max {cents(bot.maxEntryPrice)}
+              {bot.mirrorOf ? 'Inverse of ' : ''}{strategyName} · BTC {TF_LABEL[bot.timeframe]} · lot {money(bot.baseLot)}{bot.mirrorOf ? ' · no price limit' : ` · max ${cents(bot.maxEntryPrice)}`}
               {bot.martingale.enabled && ` · MG ×${bot.martingale.multiplier}${bot.martingale.resetAfter ? ` reset L${bot.martingale.resetAfter}` : ''}`}
             </div>
           </div>
@@ -103,9 +107,9 @@ export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyNa
               <table className="trades">
                 <thead>
                   <tr>
-                    <th>Hour (PKT)</th>
+                    <th>Window (PKT)</th>
                     <th>Bet</th>
-                    <th>Candle</th>
+                    <th>Outcome</th>
                     <th className="r">Cost</th>
                     <th className="r">Shares @ price</th>
                     <th className="r">Fee</th>
@@ -117,14 +121,14 @@ export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyNa
                 </thead>
                 <tbody>
                   {trades?.map((t) => {
-                    const cc = candleColor(t);
+                    const outcome = outcomeOf(t);
                     return (
                       <tr key={t.id}>
                         <td>
                           {pktStamp(t.hourTs)}
                         </td>
                         <td className={t.side === 'UP' ? 'up' : 'down'}>{t.side}</td>
-                        <td className={cc === 'green' ? 'up' : cc === 'red' ? 'down' : 'muted'}>{cc ?? '—'}</td>
+                        <td className={outcome === 'UP' ? 'up' : outcome === 'DOWN' ? 'down' : 'muted'}>{outcome ?? '—'}</td>
                         <td className="r">
                           {money(t.stake)}
                           {t.mgStep > 0 && <span className="muted"> L{t.mgStep}</span>}

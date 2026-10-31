@@ -80,7 +80,7 @@ export function slugForHour(hourTs: number): string {
 
 export const eventUrl = (slug: string) => `https://polymarket.com/event/${slug}`;
 
-async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
+export async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
   let last: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -198,12 +198,14 @@ export function fillFromAsks(asks: { price: string; size: string }[], stake: num
     left -= take * l.price;
     fee += takerFee(take, l.price, feeRate);
   }
-  const cost = stake - left;
   if (shares <= 0) return null;
+  // Shares are booked to the cent; the cost is what those whole cents of shares cost at the average fill.
+  const avgPrice = (stake - left) / shares;
+  const booked = Math.floor(shares * 100) / 100;
   return {
-    shares: Math.floor(shares * 100) / 100,
-    cost: Math.round(cost * 1e5) / 1e5,
-    avgPrice: cost / shares,
+    shares: booked,
+    cost: Math.round(booked * avgPrice * 1e5) / 1e5,
+    avgPrice,
     fee: Math.round(fee * 1e5) / 1e5,
     bestAsk: levels[0].price,
   };
@@ -282,4 +284,15 @@ export async function syncHistory(tf: Timeframe, days: number, log = console.log
 export function cachedMarket(tf: Timeframe, hourTs: number): PmMarket | null {
   const r = q.get.get(tf, hourTs) as Row | undefined;
   return r ? toMarket(r) : null;
+}
+
+/** Polymarket's traded price for a token closest to `ts` (CLOB minute-fidelity price history), or null. */
+export async function tradedPriceNear(token: string, ts: number): Promise<number | null> {
+  const s = Math.floor(ts / 1000);
+  const res = await getJson<{ history?: { t: number; p: number }[] }>(
+    `${CLOB}/prices-history?market=${token}&startTs=${s - 60}&endTs=${s + 120}&fidelity=1`,
+  );
+  const pts = (res.history ?? []).filter((h) => h.p > 0 && h.p < 1);
+  if (!pts.length) return null;
+  return pts.reduce((a, b) => (Math.abs(b.t - s) < Math.abs(a.t - s) ? b : a)).p;
 }

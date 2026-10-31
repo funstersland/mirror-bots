@@ -3,9 +3,10 @@ import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { runAudit } from './audit.ts';
 import { authRoutes } from './auth.ts';
 import { config } from './config.ts';
-import { addTimeframeTwins, addInverseTwins, nameInverseTwins, dropReplays, migratePricing, startEngine } from './engine/runner.ts';
+import { addTimeframeTwins, addInverseTwins, freshStart, resumeAll, mirrorInverseHistory, nameInverseTwins, dropReplays, migratePricing, startEngine } from './engine/runner.ts';
 import { loadCandles, syncCandles } from './market.ts';
 import { apiRoutes } from './routes.ts';
 
@@ -32,7 +33,16 @@ addTimeframeTwins();
 dropReplays();
 addInverseTwins();
 nameInverseTwins();
-startEngine();
+freshStart();
+resumeAll();
+// Rebuild inverse histories as strict mirrors before the engine trades again. It calls Polymarket, so the
+// server starts listening meanwhile.
+mirrorInverseHistory()
+  .catch((e) => console.error('[engine] mirror rebuild failed', e))
+  .finally(() => startEngine());
+// Cross-check every settled trade against Polymarket shortly after boot, then every 6 hours.
+setTimeout(() => runAudit().catch((e) => console.error('[audit]', e)), 60_000);
+setInterval(() => runAudit().catch((e) => console.error('[audit]', e)), 6 * 3600_000);
 
 await app.listen({ port: config.port, host: config.host });
 console.log(`[poly-bots] listening on http://localhost:${config.port}`);

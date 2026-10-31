@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Bot, BotStats, DayBucket, HourBucket, Trade } from '../shared/types.ts';
 import { PKT_OFFSET_MS } from '../shared/types.ts';
+import { lastAudit } from './audit.ts';
 import { requireUser } from './auth.ts';
 import { db } from './db.ts';
 import { type BotRow, type TradeRow, backfill, createInverse, refreshStats, stopRunning } from './engine/runner.ts';
@@ -206,8 +207,7 @@ export function apiRoutes(app: FastifyInstance) {
           }
           break;
         case 'resume':
-          if (b.status === 'busted') return reply.code(409).send({ error: 'Balance is below the minimum stake. Reset the bot first.' });
-          if (b.status === 'paused') {
+          if (b.status === 'paused' || b.status === 'busted') {
             // Don't trade the hour that is already under way.
             db.prepare("UPDATE bots SET status = 'running', running_since = ?, last_hour = ? WHERE id = ?").run(now, floorTo(now, b.timeframe), b.id);
           }
@@ -270,6 +270,14 @@ export function apiRoutes(app: FastifyInstance) {
         .prepare('SELECT * FROM trades WHERE bot_id = ? AND hour_ts < ? ORDER BY hour_ts DESC LIMIT ?')
         .all(b.id, before, limit) as TradeRow[];
       return rows.map(tradeToApi);
+    });
+
+    /** Latest cross-check of this user's settled trades against Polymarket (see server/audit.ts). */
+    r.get('/api/audit', async (req) => {
+      const report = lastAudit();
+      if (!report) return { ready: false };
+      const mine = new Set((db.prepare('SELECT id FROM bots WHERE user_id = ?').all(req.userId) as { id: number }[]).map((b) => b.id));
+      return { ready: true, ranAt: report.ranAt, issues: report.issues.filter((i) => mine.has(i.botId)) };
     });
 
     /** Net PnL per PKT hour of day, summed over the chosen PKT dates. */
