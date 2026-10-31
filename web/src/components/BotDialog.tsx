@@ -221,16 +221,20 @@ export function BotDialog({ bot, onClose }: Props) {
               <span className="label">Lot per trade</span>
               <MoneyInput value={lot} onChange={setLot} />
             </label>
-            <label className="field">
-              <span className="label">Max entry price</span>
-              <div className="input-wrap">
-                <input className="input mono" type="number" min={5} max={95} value={entry} onChange={(e) => setEntry(e.target.value === '' ? '' : Number(e.target.value))} />
-                <span className="affix post">¢</span>
-              </div>
-            </label>
+            {!inverse && (
+              <label className="field">
+                <span className="label">Max entry price</span>
+                <div className="input-wrap">
+                  <input className="input mono" type="number" min={5} max={95} value={entry} onChange={(e) => setEntry(e.target.value === '' ? '' : Number(e.target.value))} />
+                  <span className="affix post">¢</span>
+                </div>
+              </label>
+            )}
           </div>
           <span className="hint muted" style={{ fontSize: 12, marginTop: -8 }}>
-            The bot buys at the live Polymarket order book when the hour opens. If a share costs more than the max entry price, it skips that hour. A winning share pays $1; Polymarket's crypto taker fee is added.
+            {inverse
+              ? 'An inverse bot takes the opposite side of every trade its original takes, at the live Polymarket order book, with no price limit of its own. A winning share pays $1; Polymarket\'s crypto taker fee is added.'
+              : 'The bot buys at the live Polymarket order book when the window opens. If a share costs more than the max entry price, it skips that window. A winning share pays $1; Polymarket\'s crypto taker fee is added.'}
           </span>
 
           <div className="section-title label">Martingale</div>

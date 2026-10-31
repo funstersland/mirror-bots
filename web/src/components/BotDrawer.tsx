@@ -30,6 +30,10 @@ export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyNa
   }, [onClose]);
 
   const kv: [string, React.ReactNode][] = [
+    ['Total trades', `${s.trades + s.open}`],
+    ['Won', <span className="up">{s.wins}</span>],
+    ['Lost', <span className="down">{s.losses}</span>],
+    ['Open', `${s.open}`],
     ['Realized', <span className={tone(s.realized)}>{signed(s.realized)}</span>],
     ['Balance', money(bot.balance)],
     ['Win rate', `${pct(s.winRate, 1)} · ${s.wins}/${s.trades}`],
@@ -51,7 +55,7 @@ export function BotDrawer({ bot, strategyName, onClose }: { bot: Bot; strategyNa
           <div>
             <h2>{bot.name}</h2>
             <div className="mono muted" style={{ fontSize: 12, marginTop: 3 }}>
-              {bot.mirrorOf ? 'Inverse of ' : ''}{strategyName} · BTC {TF_LABEL[bot.timeframe]} · lot {money(bot.baseLot)} · max {cents(bot.maxEntryPrice)}
+              {bot.mirrorOf ? 'Inverse of ' : ''}{strategyName} · BTC {TF_LABEL[bot.timeframe]} · lot {money(bot.baseLot)}{bot.mirrorOf ? ' · no price limit' : ` · max ${cents(bot.maxEntryPrice)}`}
               {bot.martingale.enabled && ` · MG ×${bot.martingale.multiplier}${bot.martingale.resetAfter ? ` reset L${bot.martingale.resetAfter}` : ''}`}
             </div>
           </div>

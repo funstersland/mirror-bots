@@ -136,9 +136,9 @@ export function BotCard({ bot, strategy, onSettings, onReset, onTrades }: Props)
           </div>
         </div>
         <div>
-          <div className="label">Record</div>
+          <div className="label">Trades</div>
           <div className="v">
-            {s.wins}W {s.losses}L · {pct(s.winRate)}
+            {s.trades + s.open} <span className="dim">· {s.wins}W {s.losses}L · {pct(s.winRate)}</span>
           </div>
         </div>
         <div>
