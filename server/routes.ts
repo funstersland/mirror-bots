@@ -207,8 +207,7 @@ export function apiRoutes(app: FastifyInstance) {
           }
           break;
         case 'resume':
-          if (b.status === 'busted') return reply.code(409).send({ error: 'Balance is below the minimum stake. Reset the bot first.' });
-          if (b.status === 'paused') {
+          if (b.status === 'paused' || b.status === 'busted') {
             // Don't trade the hour that is already under way.
             db.prepare("UPDATE bots SET status = 'running', running_since = ?, last_hour = ? WHERE id = ?").run(now, floorTo(now, b.timeframe), b.id);
           }

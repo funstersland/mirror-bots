@@ -17,9 +17,9 @@ export const round2 = (n: number) => Math.round(n * 100) / 100;
 /** Polymarket's rule for these markets: UP wins when the Binance 1h candle closes at or above its open. */
 export const outcomeOf = (c: Candle): Side => (c.c >= c.o ? 'UP' : 'DOWN');
 
-export function stakeFor(mg: MgState, balance: number): number {
-  const want = mg.enabled ? mg.nextStake : mg.baseLot;
-  return round2(Math.min(want, balance));
+/** Balance is unlimited (Christian, 2026-10-31): the stake never shrinks to fit it, and it may go negative. */
+export function stakeFor(mg: MgState): number {
+  return round2(mg.enabled ? mg.nextStake : mg.baseLot);
 }
 
 /** A winning share pays 1 pUSD; the fee is paid either way. */

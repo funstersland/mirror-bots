@@ -120,7 +120,6 @@ function settle(b: BotRow, t: TradeRow, outcome: Side, confirmed: boolean, now: 
   b.next_stake = mg.nextStake;
   b.mg_loss_run = mg.lossRun;
   q.settleTrade.run(won ? 'won' : 'lost', pnl, b.balance, confirmed ? 1 : 0, t.id);
-  if (b.balance < MIN_STAKE && b.status !== 'busted') stopRunning(b, 'busted', now);
 }
 
 export function refreshStats(botId: number) {
@@ -151,7 +150,7 @@ const runBackfill = db.transaction((botId: number, days: number) => {
       if (!sig) continue;
       const price = sig.side === 'UP' ? m.openUp : m.openDown;
       if (price === null || price <= 0 || price >= 1 || price > b.entry_price) continue;
-      const stake = stakeFor(mgOf(b), b.balance);
+      const stake = stakeFor(mgOf(b));
       const shares = Math.floor((stake / price) * 100) / 100;
       if (shares < m.minSize || stake < MIN_STAKE) continue;
       const cost = round4(shares * price);
@@ -195,12 +194,8 @@ async function enterLive(b: BotRow, hour: number, markets: Map<string, Promise<P
   }
   const token = sig.side === 'UP' ? m.upToken : m.downToken;
   const asks = await getAsks(token);
-  let stake = stakeFor(mgOf(b), b.balance);
-  let fill = fillFromAsks(asks, stake, m.feeRate);
-  if (fill && fill.cost + fill.fee > b.balance) {
-    stake = Math.max(0, b.balance - fill.fee);
-    fill = fillFromAsks(asks, stake, m.feeRate);
-  }
+  const stake = stakeFor(mgOf(b));
+  const fill = fillFromAsks(asks, stake, m.feeRate);
   if (!fill || stake < MIN_STAKE) return log(`${b.name}: empty order book for ${sig.side}`);
   // Inverse bots never skip a trade their original took, so only originals apply the price and size limits.
   if (b.mirror_of === null) {
@@ -482,7 +477,7 @@ export async function mirrorInverseHistory() {
           }
           // Stake and fee together must fit in the balance.
           const affordable = Math.floor((balance / (1 + p.feeRate * (1 - p.price))) * 100) / 100;
-          const stake = Math.min(stakeFor(mg, balance), affordable);
+          const stake = Math.min(stakeFor(mg), affordable);
           if (stake < MIN_STAKE) continue;
           const shares = Math.floor((stake / p.price) * 100) / 100;
           const cost = round4(shares * p.price);
@@ -551,4 +546,18 @@ export function freshStart() {
   setMeta('strict-mirror', 'v1');
   setMeta('fresh-start', '2026-10-29');
   log('fresh start: deleted all trades; every bot restarts at its start balance');
+}
+
+/** One-time (Christian, 2026-10-31): balance is unlimited, so every busted or paused bot runs again. History is kept. */
+export function resumeAll() {
+  if (getMeta('unlimited-balance') === 'v1') return;
+  const now = Date.now();
+  const bots = db.prepare("SELECT id, timeframe FROM bots WHERE status != 'running'").all() as { id: number; timeframe: Timeframe }[];
+  db.transaction(() => {
+    for (const b of bots)
+      db.prepare("UPDATE bots SET status = 'running', running_since = ?, last_hour = MAX(last_hour, ?) WHERE id = ?")
+        .run(now, floorTo(now, b.timeframe), b.id);
+  })();
+  setMeta('unlimited-balance', 'v1');
+  log(`unlimited balance: resumed ${bots.length} bots`);
 }

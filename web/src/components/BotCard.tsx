@@ -195,7 +195,7 @@ export function BotCard({ bot, strategy, onSettings, onReset, onTrades }: Props)
       )}
 
       <div className="card-foot">
-        <button className={`btn sm ${bot.status === 'running' ? '' : 'primary'}`} onClick={toggle} disabled={busy || bot.status === 'busted'}>
+        <button className={`btn sm ${bot.status === 'running' ? '' : 'primary'}`} onClick={toggle} disabled={busy}>
           {bot.status === 'running' ? 'Pause' : 'Resume'}
         </button>
         <button className="btn sm" onClick={onSettings}>

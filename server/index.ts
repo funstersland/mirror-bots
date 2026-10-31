@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { runAudit } from './audit.ts';
 import { authRoutes } from './auth.ts';
 import { config } from './config.ts';
-import { addTimeframeTwins, addInverseTwins, freshStart, mirrorInverseHistory, nameInverseTwins, dropReplays, migratePricing, startEngine } from './engine/runner.ts';
+import { addTimeframeTwins, addInverseTwins, freshStart, resumeAll, mirrorInverseHistory, nameInverseTwins, dropReplays, migratePricing, startEngine } from './engine/runner.ts';
 import { loadCandles, syncCandles } from './market.ts';
 import { apiRoutes } from './routes.ts';
 
@@ -34,6 +34,7 @@ dropReplays();
 addInverseTwins();
 nameInverseTwins();
 freshStart();
+resumeAll();
 // Rebuild inverse histories as strict mirrors before the engine trades again. It calls Polymarket, so the
 // server starts listening meanwhile.
 mirrorInverseHistory()

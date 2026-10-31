@@ -25,8 +25,9 @@ test('resetAfter 0 never resets on losses', () => {
   assert.equal(mg.nextStake, 160);
 });
 
-test('stake is capped by balance', () => {
-  assert.equal(stakeFor({ ...base, nextStake: 40 }, 25.5), 25.5);
+test('stake is never capped by balance (balance is unlimited)', () => {
+  assert.equal(stakeFor({ ...base, enabled: true, nextStake: 40 }), 40);
+  assert.equal(stakeFor({ ...base, enabled: false, nextStake: 40 }), base.baseLot);
 });
 
 test('payoff: shares pay 1 on a win, fee paid either way', () => {
